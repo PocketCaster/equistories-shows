@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EquiStories Shows</title>
+<style>
+  :root{
+    --ink:#15100c; --panel:#1c1510; --raised:#241a13; --line:#4a392a;
+    --amber:#c98a3a; --parchment:#e8dcc8; --dim:#b5a392; --moss:#7a9b6e; --rust:#b5533a;
+    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--parchment);font:16px/1.55 Georgia,"Iowan Old Style",serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
+
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:28px}
+  h1{font-size:1.9rem;margin:0}
+  h1 em{color:var(--amber);font-style:normal}
+  .tagline{color:var(--dim);font-size:.95rem;margin-top:6px}
+
+  .step{margin:0 0 34px}
+  .step > h2{font-size:1.05rem;margin:0 0 14px;font-weight:normal;display:flex;align-items:baseline;gap:10px}
+  .step > h2 .n{font:600 .78rem/1 var(--mono);color:var(--amber);border:1px solid var(--line);border-radius:3px;padding:5px 7px}
+  .step > h2 .hint{color:var(--dim);font-size:.85rem;margin-left:auto;font-family:var(--mono)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+
+  label{display:block;font-size:.8rem;color:var(--dim);margin-bottom:5px;letter-spacing:.04em;text-transform:uppercase}
+  input,select,button{font-family:inherit;font-size:.95rem}
+  input[type=text],input[type=number],input[type=date],input[type=url],select{
+    width:100%;background:var(--ink);color:var(--parchment);border:1px solid var(--line);
+    border-radius:5px;padding:8px 10px;
+  }
+  :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+
+  button{background:var(--raised);color:var(--parchment);border:1px solid var(--line);border-radius:5px;padding:9px 16px;cursor:pointer}
+  button:hover{border-color:var(--amber);color:var(--amber)}
+  button.primary{background:var(--amber);color:var(--ink);border-color:var(--amber);font-weight:bold}
+  button.primary:hover{filter:brightness(1.1);color:var(--ink)}
+  button.ghost{background:none}
+  button.danger:hover{border-color:var(--rust);color:var(--rust)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+  .mono{font-family:var(--mono)}
+  .muted{color:var(--dim)}
+  .small{font-size:.85rem}
+
+  .note{border-left:2px solid var(--line);padding:8px 0 8px 12px;color:var(--dim);font-size:.85rem;margin-top:12px}
+  .note.warn{border-left-color:var(--amber);color:var(--amber)}
+  .note.bad{border-left-color:var(--rust);color:var(--rust)}
+  .note.good{border-left-color:var(--moss);color:var(--moss)}
+
+  .toggle{display:flex;align-items:center;gap:9px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:.9rem;color:var(--parchment);margin:0}
+  .toggle input{width:auto;accent-color:var(--amber);flex:none}
+
+  .entry{border:1px solid var(--line);border-radius:6px;background:var(--raised);padding:12px 14px;margin-bottom:10px}
+  .entry .name{font-weight:bold}
+  .entry .meta{color:var(--dim);font-size:.85rem}
+  .statline{font-family:var(--mono);font-size:.83rem;color:var(--dim);margin-top:5px}
+  .statline .v{color:var(--parchment)}
+  .statline .bonus{color:var(--moss)}
+  .pts{text-align:right;font-family:var(--mono);white-space:nowrap}
+  .pts b{color:var(--amber);font-size:1.15rem}
+
+  details{margin-top:8px}
+  summary{cursor:pointer;color:var(--dim);font-size:.82rem}
+  summary:hover{color:var(--amber)}
+  details ul{margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:.83rem}
+  a{color:var(--amber)}
+
+  /* rubric */
+  .crit{border-top:1px solid var(--line);padding:14px 0 4px}
+  .crit:first-child{border-top:none}
+  .crit h4{margin:0 0 2px;font-size:.95rem;font-weight:normal}
+  .crit h4 span{color:var(--dim);font-family:var(--mono);font-size:.8rem;margin-left:6px}
+  .crit .help{color:var(--dim);font-size:.8rem;margin-bottom:10px;font-style:italic}
+
+  .bands{display:grid;gap:6px}
+  .band{
+    display:grid;grid-template-columns:42px 108px 1fr;gap:12px;align-items:baseline;
+    padding:8px 10px;border:1px solid transparent;border-radius:5px;cursor:pointer;
+  }
+  .band:hover{border-color:var(--line);background:var(--ink)}
+  .band input{width:auto;accent-color:var(--amber)}
+  .band .p{font-family:var(--mono);color:var(--amber);font-size:.85rem}
+  .band .l{font-size:.88rem}
+  .band .d{color:var(--dim);font-size:.82rem}
+  .band.on{border-color:var(--amber);background:var(--ink)}
+
+  .checks{display:grid;gap:5px}
+  .check{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:.9rem}
+  .check:hover{background:var(--ink)}
+  .check input{width:auto;accent-color:var(--moss);flex:none}
+  .check .p{margin-left:auto;font-family:var(--mono);color:var(--dim);font-size:.8rem}
+
+  .artview{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--ink);line-height:0}
+  .artview img{display:block;width:100%;max-height:520px;object-fit:contain;background:var(--ink)}
+
+  .judgecard{border:1px solid var(--line);border-radius:6px;background:var(--raised);padding:16px;margin-bottom:14px}
+  .blindno{font:700 1.3rem/1 var(--mono);color:var(--amber)}
+  .chip{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:.75rem;color:var(--dim);margin:2px 3px 2px 0;font-family:var(--mono)}
+  .chip.conf{border-color:var(--rust);color:var(--rust)}
+
+  /* signature: the finish strip */
+  .strip{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+  .finish{display:grid;grid-template-columns:56px 1fr auto auto;gap:14px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .finish:last-of-type{border-bottom:none}
+  .finish.win{background:linear-gradient(90deg,rgba(201,138,58,.13),transparent 65%)}
+  .place{font:700 1.05rem/1 var(--mono);color:var(--amber);border-right:1px solid var(--line);padding-right:12px}
+  .finish.win .place{font-size:1.5rem}
+  .clock{font:1.2rem/1 var(--mono);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .delta{font:.8rem/1 var(--mono);color:var(--dim);min-width:72px;text-align:right}
+  .breakdown{font-family:var(--mono);font-size:.76rem;color:var(--dim);padding:0 16px 12px 86px}
+  .breakdown b{color:var(--parchment);font-weight:normal}
+
+  .verify{background:var(--ink);border-top:1px solid var(--line);padding:14px 16px;font-family:var(--mono);font-size:.78rem;color:var(--dim);word-break:break-all;line-height:1.7}
+  .verify b{color:var(--moss);font-weight:normal}
+
+  .empty{color:var(--dim);text-align:center;padding:26px;font-size:.9rem}
+  .hide{display:none !important}
+
+  @media (prefers-reduced-motion:no-preference){
+    .finish{animation:in .32s ease both}
+    @keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  }
+  @media (max-width:620px){
+    .band{grid-template-columns:32px 1fr;row-gap:2px}
+    .band .d{grid-column:2}
+    .finish{grid-template-columns:44px 1fr;row-gap:6px}
+    .delta{text-align:left}
+    .breakdown{padding-left:16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>EquiStories <em>Shows</em></h1>
+  <div class="tagline">Anyone can host. Stats score themselves. Races can't be re-rolled, and the judge doesn't know whose art it is.</div>
+</header>
+
+<!-- ENTRANT VIEW — what someone sees when they open a host's invite link -->
+<section id="entrantView" class="hide">
+  <div class="panel" style="margin-bottom:22px">
+    <div class="small muted mono" id="ev_meta"></div>
+    <h2 style="margin:6px 0 4px;font-size:1.4rem" id="ev_title"></h2>
+    <div class="muted" id="ev_sub"></div>
+    <div class="note" id="ev_stats"></div>
+    <details style="margin-top:14px"><summary>What the judges will score you on</summary>
+      <div id="ev_rubric" style="margin-top:10px"></div>
+    </details>
+  </div>
+
+  <div class="panel">
+    <label for="ev_link">1 · Your horse's shareable link</label>
+    <div class="row">
+      <input id="ev_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123&stable=https://script.google.com/…" />
+      <button class="ghost" id="ev_check" type="button">Check my horse</button>
+    </div>
+    <div id="ev_horse"></div>
+
+    <div class="grid" style="margin-top:18px">
+      <div><label for="ev_art">2 · Art link — direct image url</label>
+        <input id="ev_art" type="text" placeholder="https://…/piece.png" /></div>
+      <div><label for="ev_lit">Written entry (optional)</label>
+        <input id="ev_lit" type="text" placeholder="https://…" /></div>
+      <div><label for="ev_wc">Word count</label>
+        <input id="ev_wc" type="number" min="0" value="0" /></div>
+    </div>
+    <div id="ev_preview"></div>
+
+    <div class="row" style="margin-top:18px">
+      <button class="primary" id="ev_gen" type="button">Generate my entry code</button>
+    </div>
+    <div id="ev_out"></div>
+  </div>
+</section>
+
+<div id="hostView">
+<!-- 01 -->
+<section class="step">
+  <h2><span class="n">01</span> Set up the show <span class="hint" id="modeTag"></span></h2>
+  <div class="panel">
+    <div class="grid">
+      <div><label for="f_title">Show name</label><input id="f_title" type="text" value="Frostbound Drag Hunt" /></div>
+      <div><label for="f_disc">Discipline</label><select id="f_disc"></select></div>
+      <div><label for="f_closes">Entries close</label><input id="f_closes" type="date" value="2026-03-31" /></div>
+    </div>
+    <div class="grid" style="margin-top:14px">
+      <div><label for="f_src">Stats counted</label>
+        <select id="f_src">
+          <option value="base">Base — training only</option>
+          <option value="effective">Effective — tack counts</option>
+        </select></div>
+      <div><label for="f_ceil">Stat ceiling</label><input id="f_ceil" type="number" value="20" min="10" /></div>
+      <div id="raceWrap" class="hide"><label for="f_race">Distance</label><select id="f_race"></select></div>
+      <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select></div>
+    </div>
+
+    <div id="blindWrap" style="margin-top:16px">
+      <label class="toggle"><input type="checkbox" id="f_blind" checked />
+        Blind judging — hide names and stables from judges</label>
+    </div>
+
+    <div class="note" id="statNote"></div>
+    <div class="note" id="blindNote"></div>
+
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+      <label for="f_invite">Invite link — send this to your community</label>
+      <div class="row">
+        <input id="f_invite" type="text" readonly style="flex:1;min-width:240px" />
+        <button class="primary" id="copyInvite" type="button">Copy</button>
+      </div>
+      <div class="note">Anyone who opens this gets the show, the rubric, and an entry form. The link
+        <b>is</b> the show — there's nothing to host and nothing to sign up for. They send you back a code.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 02 -->
+<section class="step">
+  <h2><span class="n">02</span> Entries <span class="hint" id="entryCount">0 entered</span></h2>
+  <div class="panel">
+    <label for="f_code">Paste an entry code someone sent you</label>
+    <div class="row">
+      <input id="f_code" type="text" style="flex:1;min-width:240px" placeholder="eyJ2IjoxLCJzIjoic2hvd18…" />
+      <button class="primary" id="addCode" type="button">Accept entry</button>
+    </div>
+    <div class="note">The code carries the horse's link, not its stats. We fetch the stats from that
+      horse's own stable — so nobody can enter a number they didn't earn.</div>
+    <div id="codeNote"></div>
+
+    <details style="margin-top:14px"><summary>Add a horse directly (for your own entry, or testing)</summary>
+      <div class="row" style="margin-top:10px">
+        <input id="f_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123&stable=https://script.google.com/…" />
+        <button class="ghost" id="addLink" type="button">Add horse</button>
+      </div>
+    </details>
+
+    <div class="row" style="margin-top:12px">
+      <button class="ghost small" id="demo" type="button">Load a demo field</button>
+      <button class="ghost small danger" id="clearEntries" type="button">Clear entries</button>
+    </div>
+    <div id="fetchNote"></div>
+    <div id="entries" style="margin-top:16px"></div>
+  </div>
+</section>
+
+<!-- 03 -->
+<section class="step" id="judgeStep">
+  <h2><span class="n">03</span> Judge <span class="hint" id="judgeHint"></span></h2>
+
+  <div class="panel" style="margin-bottom:14px">
+    <label>Judging panel</label>
+    <div id="judgeRoster"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="f_judge" type="text" placeholder="Judge name" style="flex:1;min-width:170px" />
+      <button class="ghost" id="addJudge" type="button">Add judge</button>
+    </div>
+    <div class="note" id="panelNote"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:14px">
+      <label for="f_asjudge" style="margin:0">Scoring as</label>
+      <select id="f_asjudge" style="width:auto;min-width:180px"></select>
+      <span class="small muted mono" id="progress"></span>
+    </div>
+    <div id="judgeBody"></div>
+  </div>
+</section>
+
+<!-- 04 -->
+<section class="step">
+  <h2><span class="n">04</span> Results</h2>
+  <div class="panel">
+    <div class="row">
+      <button class="primary" id="runBtn" type="button">Publish results</button>
+      <button class="ghost" id="exportBtn" type="button">Export show as JSON</button>
+    </div>
+    <div id="results" style="margin-top:18px"></div>
+  </div>
+</section>
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   ENGINE — mirrors engine.js exactly. Tested by test.js.
+   ============================================================ */
+
+const DISCIPLINES = {
+  "Fox Hunting":                 {stats:["boldness","stamina","harmony"],  mode:"scored"},
+  "Hunter O/F & U/S":            {stats:["balance","gaits","harmony"],     mode:"scored"},
+  "Handy Hunter / Hunter Derby": {stats:["handiness","scope","balance"],   mode:"scored"},
+  "Equitation Flat & O/F":       {stats:["harmony","balance","gaits"],     mode:"scored"},
+  "Dressage":                    {stats:["balance","gaits","strength"],    mode:"scored", ranking:"percent"},
+  "Show Jumping":                {stats:["boldness","scope","handiness"],  mode:"scored"},
+  "Cross Country":               {stats:["stamina","boldness","speed"],    mode:"scored"},
+  "Conformation / Liberty":      {stats:["gaits","harmony","balance"],     mode:"scored"},
+  "Western Pleasure":            {stats:["harmony","balance","gaits"],     mode:"scored"},
+  "Reining":                     {stats:["balance","gaits","strength"],    mode:"scored"},
+  "Cutting":                     {stats:["harmony","boldness","handiness"],mode:"scored"},
+  "Racing":                      {stats:["speed","stamina","balance"],     mode:"timed"},
+  "Steeplechase":                {stats:["speed","stamina","strength"],    mode:"timed"},
+};
+const RACE_TYPES = {
+  "5f Sprint":[55,10], "7f Sprint":[75,10], "1 Mile":[90,20],
+  "1.25 Miles":[110,20], "1.5 Miles":[130,20], "Steeplechase":[140,20],
+};
+const DEFAULT_TIERS = [{min:20,pts:10},{min:15,pts:8},{min:11,pts:5},{min:0,pts:0}];
+
+function cyrb53(str, seed=0){
+  let h1=0xdeadbeef^seed, h2=0x41c6ce57^seed;
+  for(let i=0;i<str.length;i++){
+    const ch=str.charCodeAt(i);
+    h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return 4294967296*(2097151&h2)+(h1>>>0);
+}
+function mulberry32(a){
+  return function(){
+    a|=0; a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function raceSeed(show, entries){
+  const ids = entries.map(e=>e.id).slice().sort().join(",");
+  return cyrb53(show.id + "|" + ids + "|" + show.closesAt);
+}
+function blindOrder(show, entries){
+  const rng = mulberry32(cyrb53(show.id + "|blind"));
+  return entries.slice().sort((a,b)=> a.id<b.id?-1:a.id>b.id?1:0)
+    .map(e=>({e,k:rng()})).sort((a,b)=>a.k-b.k)
+    .map(({e},i)=>({...e, blindNo:i+1}));
+}
+
+const ART_RUBRIC = [
+  { key:"required", label:"Required elements", max:10, kind:"checklist",
+    help:"Objective. Present or absent. No drawing skill required to score full marks.",
+    items:[
+      {key:"horse",   label:"The entered horse is depicted",           pts:2},
+      {key:"disc",    label:"The discipline is being performed",       pts:2},
+      {key:"setting", label:"The setting matches the show",            pts:2},
+      {key:"tack",    label:"Tack and turnout suit the discipline",    pts:2},
+      {key:"rider",   label:"Rider or handler present (if required)",  pts:2},
+    ]},
+  { key:"accuracy", label:"Discipline accuracy", max:10, kind:"anchored",
+    help:"Knowledge of the sport, not drawing ability.",
+    bands:[
+      {pts:0, label:"Absent",      desc:"The discipline isn't depicted at all."},
+      {pts:3, label:"Attempted",   desc:"Named but contradicted — wrong tack, an impossible gait, the wrong kind of obstacle."},
+      {pts:5, label:"Meets",       desc:"Recognisably this sport. Tack and movement broadly correct."},
+      {pts:8, label:"Strong",      desc:"Correct tack, and a moment that could only come from this discipline."},
+      {pts:10,label:"Exceptional", desc:"A knowledgeable viewer could name the phase or movement with no caption."},
+    ]},
+  { key:"story", label:"Storytelling & atmosphere", max:10, kind:"anchored",
+    help:"Does the scene say where, when, and what is happening?",
+    bands:[
+      {pts:0, label:"Absent",   desc:"No setting. The horse floats on blank ground."},
+      {pts:3, label:"Generic",  desc:"A setting exists but could be anywhere, any season."},
+      {pts:5, label:"Legible",  desc:"Time, weather and place are clear."},
+      {pts:8, label:"Acting on the subject", desc:"The environment affects the horse — light, footing, cold, wind."},
+      {pts:10,label:"Before and after",      desc:"Something is happening, not being posed. The moment implies what came before."},
+    ]},
+  { key:"composition", label:"Composition & readability", max:10, kind:"anchored",
+    help:"Staging is a choice, not a talent. A simple drawing can score 10 here.",
+    bands:[
+      {pts:0, label:"Unreadable", desc:"No discernible focal point."},
+      {pts:3, label:"Default",    desc:"Subject centred by habit; elements compete for attention."},
+      {pts:5, label:"Clear",      desc:"The eye lands where it was meant to."},
+      {pts:8, label:"Deliberate", desc:"Framing, negative space or leading lines move the eye on purpose."},
+      {pts:10,label:"Carries the story", desc:"The composition itself does narrative work."},
+    ]},
+  { key:"craft", label:"Craft & finish", max:10, kind:"anchored",
+    help:"The only criterion that rewards raw execution. Worth 20% of the art score.",
+    bands:[
+      {pts:0, label:"Unfinished", desc:"Placeholder or abandoned."},
+      {pts:3, label:"Loose",      desc:"Forms read; proportions wander."},
+      {pts:5, label:"Finished",   desc:"Clean linework or paint. Anatomy broadly correct."},
+      {pts:8, label:"Confident",  desc:"Sound anatomy, consistent light source."},
+      {pts:10,label:"Controlled", desc:"Command of edge, value and gesture throughout."},
+    ]},
+];
+const RUBRIC_PRESETS = {
+  "Brief-weighted (recommended)": ART_RUBRIC,
+  "Craft-weighted": ART_RUBRIC.map(c=> c.key==="craft"
+    ? {...c, max:20, bands:c.bands.map(b=>({...b, pts:b.pts*2}))} : c),
+  "Requirements only": [ART_RUBRIC[0]],
+};
+
+const statsFor = (e,show)=> show.statSource==="effective" ? e.effectiveStats : e.baseStats;
+function statTierPoints(v, tiers=DEFAULT_TIERS){ for(const t of tiers){ if(v>=t.min) return t.pts; } return 0; }
+function statScore(entry, show){
+  const src = statsFor(entry, show);
+  return DISCIPLINES[show.discipline].stats.reduce((n,s)=> n + statTierPoints(src[s]||0, show.statTiers||DEFAULT_TIERS), 0);
+}
+
+function median(list){
+  if(!list.length) return 0;
+  const s=[...list].sort((a,b)=>a-b), m=s.length>>1;
+  return s.length%2 ? s[m] : (s[m-1]+s[m])/2;
+}
+const conflicted = (judge, entry)=> (judge.owns||[]).includes(entry.id);
+
+function criterionScore(entry, crit, judges){
+  const vals = judges.filter(j=>!conflicted(j,entry))
+    .map(j=> entry.scores?.[j.id]?.[crit.key])
+    .filter(v=> typeof v === "number");
+  return median(vals);
+}
+function judgeCoverage(entry, judges){
+  const eligible = judges.filter(j=>!conflicted(j,entry));
+  const scored = eligible.filter(j=> entry.scores?.[j.id] && Object.keys(entry.scores[j.id]).length);
+  return {eligible:eligible.length, scored:scored.length};
+}
+function judgedScore(entry, show){
+  const judges = show.judges?.length ? show.judges : [{id:"host",name:"Host",owns:[]}];
+  return (show.criteria||[]).reduce((n,c)=> n + criterionScore(entry,c,judges), 0);
+}
+function scoreEntry(entry, show){
+  const ss = statScore(entry, show);
+  const judged = judgedScore(entry, show);
+  const earned = ss + judged;
+  if(show.ranking === "percent"){
+    const possible = DISCIPLINES[show.discipline].stats.length*10
+                   + (show.criteria||[]).reduce((n,c)=> n+Number(c.max||0),0);
+    return {statScore:ss, judged:+judged.toFixed(2), total:+((earned/(possible||1))*100).toFixed(3)};
+  }
+  return {statScore:ss, judged:+judged.toFixed(2), total:+earned.toFixed(2)};
+}
+function rankScored(show, entries){
+  const sorted = entries.map(e=>({...e, ...scoreEntry(e,show)}))
+    .sort((a,b)=> b.total-a.total || a.name.localeCompare(b.name));
+  let placement=0;
+  return sorted.map((e,i)=>{
+    if(i===0 || e.total!==sorted[i-1].total) placement=i+1;
+    return {...e, placement};
+  });
+}
+function runRace(show, entries){
+  const [min,spread]=RACE_TYPES[show.raceType];
+  const stats=DISCIPLINES[show.discipline].stats;
+  const ceil=show.statCeil ?? 20;
+  const rng=mulberry32(raceSeed(show,entries));
+  return entries.slice().sort((a,b)=> a.id<b.id?-1:a.id>b.id?1:0)
+    .map(e=>{
+      const src=statsFor(e,show);
+      const bonus=stats.reduce((n,s)=> n+Math.min(src[s]||0,ceil),0)*0.2;
+      return {...e, bonus:+bonus.toFixed(3), finalSec:+(min+rng()*spread-bonus).toFixed(3)};
+    })
+    .sort((a,b)=>a.finalSec-b.finalSec)
+    .map((e,i)=>({...e, placement:i+1}));
+}
+function clock(sec){ const m=Math.floor(sec/60), s=sec-m*60; return m+":"+s.toFixed(3).padStart(6,"0"); }
+function runShow(show, entries){
+  return DISCIPLINES[show.discipline].mode==="timed"
+    ? {mode:"timed", seed:raceSeed(show,entries), results:runRace(show,entries)}
+    : {mode:"scored", results:rankScored(show,entries)};
+}
+/* ---------------- sharing: shows travel as links, entries come back as codes ----------------
+
+   A show is encoded into a url fragment. An entrant opens it, attaches their horse
+   and art, and gets back a short code to send the host.
+
+   The code deliberately carries NO STATS. It carries the horse's link. The host's app
+   fetches the stats from that horse's own stable, so an entrant cannot inflate their
+   own numbers by editing the code. What the entrant's browser *saw* is recorded as a
+   fingerprint, so if the horse trains between entering and judging, the host is told.
+
+   These are exactly the rows a backend would store. Swapping paste-a-code for POST
+   changes the transport and nothing else.
+------------------------------------------------------------------------------------------- */
+
+function b64encode(obj){
+  const json = JSON.stringify(obj);
+  const bytes = typeof TextEncoder!=="undefined"
+    ? new TextEncoder().encode(json)
+    : Buffer.from(json,"utf8");
+  let bin=""; for(const b of bytes) bin += String.fromCharCode(b);
+  const b64 = typeof btoa!=="undefined" ? btoa(bin) : Buffer.from(json,"utf8").toString("base64");
+  return b64.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function b64decode(str){
+  const b64 = str.replace(/-/g,"+").replace(/_/g,"/");
+  if(typeof atob!=="undefined"){
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, c=>c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+  return JSON.parse(Buffer.from(b64,"base64").toString("utf8"));
+}
+
+// Only the fields a show needs to be re-created. Presets live in code, so we send a name.
+function encodeShow(show){
+  return b64encode({
+    v:1, i:show.id, t:show.title, d:show.discipline, c:show.closesAt,
+    s:show.statSource, l:show.statCeil, r:show.raceType, b:show.blind ? 1 : 0,
+    p:show.preset,
+    x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
+  });
+}
+function decodeShow(code){
+  const d = b64decode(code);
+  if(d.v !== 1) throw new Error("This invite was made by a different version of Shows.");
+  const preset = d.p in RUBRIC_PRESETS ? d.p : Object.keys(RUBRIC_PRESETS)[0];
+  const show = {
+    id:d.i, title:d.t, discipline:d.d, closesAt:d.c,
+    statSource:d.s, statCeil:d.l, raceType:d.r, blind:!!d.b,
+    preset, criteria: d.x || RUBRIC_PRESETS[preset],
+    judges:[{id:"j_host", name:"Host", owns:[]}],
+  };
+  show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
+  return show;
+}
+
+// A short, order-independent signature of the stats this show actually scores.
+function statsFingerprint(stats, discipline){
+  const keys = DISCIPLINES[discipline].stats;
+  return cyrb53(keys.map(k=> k+":"+(stats[k]||0)).join("|"));
+}
+
+function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, seenStats}){
+  return b64encode({
+    v:1, s:show.id, h:horseId, u:stable,
+    a:artUrl||"", w:litUrl||"", c:Number(litWords)||0,
+    t:new Date().toISOString(),
+    k: seenStats ? statsFingerprint(seenStats, show.discipline) : null,
+  });
+}
+function decodeEntry(code, show){
+  const d = b64decode(code.trim());
+  if(d.v !== 1) throw new Error("This entry code was made by a different version of Shows.");
+  if(show && d.s !== show.id) throw new Error("That code is for a different show.");
+  return {showId:d.s, horseId:d.h, stable:d.u, artUrl:d.a, litUrl:d.w,
+          litWords:d.c, submittedAt:d.t, seenFingerprint:d.k};
+}
+
+// Did the horse change between entering and judging?
+function entryTampered(entry, decoded, show){
+  if(decoded.seenFingerprint == null) return false;
+  return statsFingerprint(entry.baseStats, show.discipline) !== decoded.seenFingerprint;
+}
+
+function trainingEvidence(horse, stats){
+  return (horse.artLog||[])
+    .filter(e=> e.statsDelta && stats.some(s=> e.statsDelta[s]))
+    .map(e=>({label:e.label||"Training entry", link:e.link||e.image||null,
+      raised: stats.filter(s=>e.statsDelta[s]).map(s=> s+" +"+e.statsDelta[s])}));
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+
+const show = {
+  id:"show_"+Math.random().toString(36).slice(2,9),
+  title:"", discipline:"Fox Hunting", closesAt:"2026-03-31",
+  statSource:"base", statCeil:20, raceType:"1 Mile",
+  blind:true, preset:"Brief-weighted (recommended)",
+  criteria: ART_RUBRIC,
+  judges: [{id:"j_host", name:"Host", owns:[]}],
+};
+let entries = [];
+let published = null;
+let asJudge = "j_host";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isTimed = () => DISCIPLINES[show.discipline].mode==="timed";
+const judge = () => show.judges.find(j=>j.id===asJudge) || show.judges[0];
+
+/* ---- pull a horse from its stable (JSONP, same transport as the main app) ---- */
+function stableGas(payload, url){
+  return new Promise(resolve=>{
+    const cb="showsCb_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+    const s=document.createElement("script");
+    let done=false;
+    const finish=d=>{ if(!done){done=true; delete window[cb]; s.remove(); resolve(d);} };
+    window[cb]=finish;
+    s.onerror=()=>finish({success:false,error:"Couldn't reach that stable. Check the link is complete."});
+    setTimeout(()=>finish({success:false,error:"The stable didn't answer in time."}),15000);
+    s.src=url+"?callback="+cb+"&data="+encodeURIComponent(JSON.stringify(payload));
+    document.head.appendChild(s);
+  });
+}
+function parseHorseLink(link){
+  let u; try{ u=new URL(link.trim()); }catch{ return null; }
+  const horse=u.searchParams.get("horse"), stable=u.searchParams.get("stable");
+  return horse && stable ? {horse,stable} : null;
+}
+function snapshot(h){
+  const base={...(h.stats||{})}, bonus={};
+  const inv=h.tackInventory||[];
+  (h.tackEquipped||[]).forEach(tid=>{
+    const item=inv.find(t=>t.id===tid)||(h.tackOwned||[]).find(t=>t.id===tid);
+    if(item?.stats) for(const k in item.stats) bonus[k]=(bonus[k]||0)+Number(item.stats[k]||0);
+  });
+  const effective={...base};
+  for(const k in bonus) effective[k]=(effective[k]||0)+bonus[k];
+  return {id:h.id, name:h.name||"Unnamed", breed:h.breed||"", level:h.level||1,
+    baseStats:base, tackBonus:bonus, effectiveStats:effective,
+    artUrl:"", litUrl:"", litWords:0,
+    artLog:h.artLog||[], scores:{}, checks:{}, submittedAt:new Date().toISOString()};
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+
+function renderSetup(){
+  $("f_disc").innerHTML = Object.keys(DISCIPLINES).map(d=>`<option ${d===show.discipline?"selected":""}>${esc(d)}</option>`).join("");
+  $("f_race").innerHTML = Object.keys(RACE_TYPES).map(r=>`<option ${r===show.raceType?"selected":""}>${esc(r)}</option>`).join("");
+  $("f_preset").innerHTML = Object.keys(RUBRIC_PRESETS).map(p=>`<option ${p===show.preset?"selected":""}>${esc(p)}</option>`).join("");
+  $("f_blind").checked = show.blind;
+
+  const timed=isTimed();
+  $("modeTag").textContent = timed ? "timed · lowest clock wins" : "scored · highest total wins";
+  $("raceWrap").classList.toggle("hide", !timed);
+  $("presetWrap").classList.toggle("hide", timed);
+  $("blindWrap").classList.toggle("hide", timed);
+  $("judgeStep").classList.toggle("hide", timed);
+
+  const stats=DISCIPLINES[show.discipline].stats;
+  $("statNote").className="note"+(show.statSource==="effective"?" warn":"");
+  $("statNote").innerHTML = show.statSource==="effective"
+    ? `<b>Tack counts.</b> A +1 bit of tack lifts an untrained 10 to an 11 — worth 5 points a stat. Only turn this on if you mean it.`
+    : `Scored on <span class="mono">${stats.join(" · ")}</span> from <b>base stats only</b>. Tack is shown, never counted. Training past ${show.statCeil} adds nothing here.`;
+
+  $("blindNote").className = "note" + (show.blind ? " good" : " warn");
+  $("blindNote").innerHTML = timed ? "" : (show.blind
+    ? `Judges see an entry number and the artwork itself — embedded, never linked, so no url reveals the artist. No horse name, no stable, no stats. Order is shuffled the same way every time, so scores can't drift between sittings.
+       <br><br><b>What this can't hide:</b> a signature, a watermark, or a recognisable style. Ask entrants for unsigned copies, and treat blind judging as something that removes <em>certainty</em> and the halo — not something that makes recognition impossible.`
+    : `<b>Judges can see whose art it is.</b> This is how the popular artist wins. The rubric alone won't stop it.`);
+}
+
+function critMax(){ return show.criteria.reduce((n,c)=>n+c.max,0); }
+
+function statLine(e){
+  return DISCIPLINES[show.discipline].stats.map(s=>{
+    const b=e.baseStats[s]||0, t=e.tackBonus[s]||0;
+    return `${s} <span class="v">${b}</span>${t?`<span class="bonus">(+${t})</span>`:""}`;
+  }).join("  ");
+}
+
+function renderEntries(){
+  $("entryCount").textContent = entries.length + " entered";
+  if(!entries.length){ $("entries").innerHTML=`<div class="empty">No entries yet. Paste a horse link above, or load a demo field.</div>`; return; }
+  const stats=DISCIPLINES[show.discipline].stats;
+  $("entries").innerHTML = entries.map(e=>{
+    const ev=trainingEvidence(e,stats);
+    return `<div class="entry">
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1;min-width:200px">
+          <div class="name">${esc(e.name)}</div>
+          <div class="meta">${esc(e.breed)}${e.breed?" · ":""}Level ${e.level}</div>
+          <div class="statline">${statLine(e)}</div>
+          ${e.tampered?`<div class="small" style="color:var(--amber);margin-top:6px">⚠ Stats changed after this entry was submitted.</div>`:""}
+        </div>
+        <div class="pts"><b>${statScore(e,show)}</b><div class="small muted">of ${stats.length*10} stat pts</div>
+          <button class="ghost danger small" data-rm="${esc(e.id)}" type="button" style="margin-top:8px">Withdraw</button></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label for="art_${esc(e.id)}">Art link — direct image url</label>
+          <input id="art_${esc(e.id)}" type="text" data-f="artUrl" data-e="${esc(e.id)}" value="${esc(e.artUrl)}" placeholder="https://…/piece.png" /></div>
+        <div><label for="lit_${esc(e.id)}">Written entry (optional)</label>
+          <input id="lit_${esc(e.id)}" type="text" data-f="litUrl" data-e="${esc(e.id)}" value="${esc(e.litUrl)}" placeholder="https://…" /></div>
+        <div><label for="wc_${esc(e.id)}">Word count</label>
+          <input id="wc_${esc(e.id)}" type="number" min="0" data-f="litWords" data-e="${esc(e.id)}" value="${e.litWords||0}" /></div>
+      </div>
+      ${e.artUrl ? `<div class="artview" style="margin-top:10px"><img src="${esc(e.artUrl)}" alt="Artwork entered for ${esc(e.name)}" loading="lazy" referrerpolicy="no-referrer" /></div>` : ""}
+      <details>
+        <summary>${ev.length ? ev.length+" training entr"+(ev.length===1?"y":"ies")+" behind these stats" : "No training log returned"}</summary>
+        ${ev.length ? `<ul>${ev.map(x=>`<li>${x.link?`<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.label)}</a>`:esc(x.label)} — ${esc(x.raised.join(", "))}</li>`).join("")}</ul>`
+          : `<div class="small muted" style="margin-top:6px">This stable didn't send an art log, so these stats can't be traced here.</div>`}
+      </details>
+    </div>`;
+  }).join("");
+}
+
+function renderRoster(){
+  $("judgeRoster").innerHTML = show.judges.map(j=>{
+    const owned = entries.filter(e=>(j.owns||[]).includes(e.id));
+    return `<div class="entry" style="margin-bottom:8px">
+      <div class="row">
+        <div style="flex:1"><div class="name">${esc(j.name)}</div>
+          <div class="small muted">${owned.length ? "Cannot score: " : "No conflicts declared"}${owned.map(e=>`<span class="chip conf">${esc(e.name)}</span>`).join("")}</div></div>
+        ${show.judges.length>1?`<button class="ghost danger small" data-rmjudge="${esc(j.id)}" type="button">Remove</button>`:""}
+      </div>
+      ${entries.length?`<details><summary>Declare a conflict of interest</summary>
+        <div class="checks" style="margin-top:8px">
+          ${entries.map(e=>`<label class="check"><input type="checkbox" data-conf-j="${esc(j.id)}" data-conf-e="${esc(e.id)}" ${(j.owns||[]).includes(e.id)?"checked":""} /> ${esc(e.name)}</label>`).join("")}
+        </div></details>`:""}
+    </div>`;
+  }).join("");
+
+  const n=show.judges.length;
+  $("panelNote").className="note"+(n===1?" warn":" good");
+  $("panelNote").innerHTML = n===1
+    ? `One judge. Their opinion <b>is</b> the result. Add two more and scores aggregate by median, so a single inflated card can't decide the show.`
+    : n===2
+      ? `Two judges average out. Three or more is where the median starts protecting you.`
+      : `${n} judges. Each criterion takes the <b>median</b> — one friendly card, or one hostile one, moves nothing.`;
+}
+
+function renderJudgeStep(){
+  if(isTimed()) return;
+  renderRoster();
+  $("f_asjudge").innerHTML = show.judges.map(j=>`<option value="${esc(j.id)}" ${j.id===asJudge?"selected":""}>${esc(j.name)}</option>`).join("");
+  $("judgeHint").textContent = show.blind ? "blind · art only" : "names visible";
+
+  const j = judge();
+  if(!entries.length){ $("judgeBody").innerHTML=`<div class="empty">Entries appear here once they're added.</div>`; $("progress").textContent=""; return; }
+
+  const list = show.blind ? blindOrder(show, entries) : entries.map((e,i)=>({...e, blindNo:i+1}));
+  const mine = list.filter(e=>!conflicted(j,e));
+  const done = mine.filter(e=> e.scores[j.id] && Object.keys(e.scores[j.id]).length===show.criteria.length).length;
+  $("progress").textContent = `${done} of ${mine.length} scored`;
+
+  $("judgeBody").innerHTML = list.map(e=>{
+    if(conflicted(j,e)) return `<div class="judgecard"><div class="row">
+        <span class="blindno">${show.blind?String(e.blindNo).padStart(2,"0"):""}</span>
+        <div style="flex:1"><div class="name">${show.blind?"Entry withheld":esc(e.name)}</div>
+        <div class="small muted">${esc(j.name)} declared a conflict on this entry — it will be scored by the others.</div></div>
+      </div></div>`;
+
+    const head = show.blind
+      ? `<span class="blindno">${String(e.blindNo).padStart(2,"0")}</span>
+         <div style="flex:1"><div class="name">Entry ${String(e.blindNo).padStart(2,"0")}</div>
+           <div class="small muted">Artist and horse withheld until results are published.</div></div>`
+      : `<div style="flex:1"><div class="name">${esc(e.name)}</div><div class="statline">${statLine(e)}</div></div>`;
+
+    // Under blind judging the image is embedded, never linked: a url like
+    // deviantart.com/<artist>/… would identify the entrant on hover.
+    const art = e.artUrl
+      ? `<div class="artview"><img src="${esc(e.artUrl)}" alt="${show.blind?`Entry ${e.blindNo}`:esc(e.name)} — artwork under judging" loading="lazy" referrerpolicy="no-referrer" /></div>`
+      : `<div class="empty" style="padding:18px">No art submitted on this entry yet.</div>`;
+
+    const lit = e.litUrl
+      ? (show.blind
+          ? `<div class="small muted" style="margin-top:8px">Written entry attached · ${e.litWords||0} words. Open it from the entries list — the link names its author.</div>`
+          : `<div class="small" style="margin-top:8px"><a href="${esc(e.litUrl)}" target="_blank" rel="noopener">Read the written entry ↗</a> · ${e.litWords||0} words</div>`)
+      : "";
+
+    return `<div class="judgecard">
+      <div class="row" style="align-items:flex-start">${head}</div>
+      <div style="margin-top:12px">${art}${lit}</div>
+      <div style="margin-top:14px">${show.criteria.map(c=> critControl(e,c,j)).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+function critControl(e, c, j){
+  const cur = e.scores[j.id]?.[c.key];
+  const head = `<h4>${esc(c.label)}<span>max ${c.max}</span></h4><div class="help">${esc(c.help||"")}</div>`;
+
+  if(c.kind==="checklist"){
+    const ticked = e.checks[j.id]?.[c.key] || {};
+    return `<div class="crit">${head}<div class="checks">
+      ${c.items.map(it=>`<label class="check">
+        <input type="checkbox" data-chk-e="${esc(e.id)}" data-chk-c="${esc(c.key)}" data-chk-i="${esc(it.key)}" ${ticked[it.key]?"checked":""} />
+        ${esc(it.label)}<span class="p">+${it.pts}</span></label>`).join("")}
+    </div></div>`;
+  }
+  return `<div class="crit">${head}<div class="bands">
+    ${c.bands.map(b=>`<label class="band ${cur===b.pts?"on":""}">
+      <input type="radio" name="b_${esc(e.id)}_${esc(c.key)}" data-bnd-e="${esc(e.id)}" data-bnd-c="${esc(c.key)}" data-bnd-p="${b.pts}" ${cur===b.pts?"checked":""} />
+      <span class="p">${b.pts} pt${b.pts===1?"":"s"}</span><span class="l">${esc(b.label)}</span><span class="d">${esc(b.desc)}</span>
+    </label>`).join("")}
+  </div></div>`;
+}
+
+function renderResults(){
+  const box=$("results");
+  if(!published){ box.innerHTML=`<div class="empty">Nothing published yet. Judges' totals stay hidden until you do — nobody scores toward a number they can see.</div>`; return; }
+
+  const {mode,results,seed}=published;
+  const best=results[0];
+
+  const rows = results.map(e=>{
+    const win = e.placement===1;
+    const right = mode==="timed"
+      ? `<div class="clock">${clock(e.finalSec)}</div><div class="delta">${win?"—":"+"+(e.finalSec-best.finalSec).toFixed(3)}</div>`
+      : `<div class="clock">${show.ranking==="percent"?e.total.toFixed(3)+"%":e.total}</div><div class="delta">${e.statScore} stat · ${e.judged} art</div>`;
+
+    let sub = "";
+    if(mode==="scored"){
+      const cov=judgeCoverage(e, show.judges);
+      const parts = show.criteria.map(c=>`${c.label.split(" ")[0].toLowerCase()} <b>${criterionScore(e,c,show.judges)}</b>`).join(" · ");
+      sub = `<div class="breakdown">${parts} &nbsp;—&nbsp; median of ${cov.scored} judge${cov.scored===1?"":"s"}${cov.eligible<show.judges.length?" (conflict excluded)":""}</div>`;
+    }
+
+    return `<div class="finish ${win?"win":""}">
+      <div class="place">${e.placement}</div>
+      <div><div class="name">${esc(e.name)}</div>
+        <div class="small muted">${mode==="timed"?"−"+e.bonus.toFixed(1)+"s from stats":esc(e.breed)}</div></div>
+      ${right}
+    </div>${sub}`;
+  }).join("");
+
+  const verify = mode==="timed"
+    ? `<div class="verify">
+        <b>seed</b> ${seed}<br>
+        <b>rule</b> cyrb53(showId | sorted entry ids | closesAt) → mulberry32<br>
+        <b>race</b> ${esc(show.raceType)} · base ${RACE_TYPES[show.raceType][0]}s + noise 0–${RACE_TYPES[show.raceType][1]}s − stat bonus<br>
+        <b>bonus</b> (${DISCIPLINES[show.discipline].stats.join(" + ")}) × 0.2, each capped at ${show.statCeil}<br>
+        Fixed the moment entries closed. Re-run it as often as you like — it lands the same way.
+      </div>`
+    : `<div class="verify">
+        <b>total</b> stat points + art points${show.ranking==="percent"?", as a percentage of everything available":""}<br>
+        <b>art</b> ${critMax()} available · craft worth ${show.criteria.find(c=>c.key==="craft")?.max ?? 0}<br>
+        <b>panel</b> ${show.judges.map(j=>esc(j.name)).join(", ")} · each criterion is the median, not the mean<br>
+        <b>judged</b> ${show.blind?"blind — names revealed only now":"names were visible to judges"}<br>
+        Stats came from each horse's training log. Judges scored only the art.
+      </div>`;
+
+  box.innerHTML=`<div class="strip">${rows}${verify}</div>`;
+}
+
+const renderAll = ()=>{ renderSetup(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); };
+const invalidate = ()=>{ published=null; };
+
+/* ============================================================
+   EVENTS
+   ============================================================ */
+
+$("f_title").oninput  = e => show.title=e.target.value;
+$("f_closes").onchange= e => { show.closesAt=e.target.value; invalidate(); renderResults(); };
+$("f_ceil").onchange  = e => { show.statCeil=Math.max(10,Number(e.target.value)||20); invalidate(); renderAll(); };
+$("f_src").onchange   = e => { show.statSource=e.target.value; invalidate(); renderAll(); };
+$("f_race").onchange  = e => { show.raceType=e.target.value; invalidate(); renderAll(); };
+$("f_blind").onchange = e => { show.blind=e.target.checked; invalidate(); renderAll(); };
+$("f_preset").onchange= e => { show.preset=e.target.value; show.criteria=RUBRIC_PRESETS[show.preset]; invalidate(); renderAll(); };
+$("f_disc").onchange  = e => {
+  show.discipline=e.target.value;
+  show.ranking=DISCIPLINES[show.discipline].ranking||"sum";
+  invalidate(); renderAll();
+};
+
+$("addJudge").onclick = () => {
+  const name=$("f_judge").value.trim();
+  if(!name) return;
+  show.judges.push({id:"j_"+Math.random().toString(36).slice(2,8), name, owns:[]});
+  $("f_judge").value=""; invalidate(); renderAll();
+};
+$("judgeRoster").addEventListener("click", e=>{
+  const id=e.target.dataset.rmjudge; if(!id) return;
+  show.judges=show.judges.filter(j=>j.id!==id);
+  if(asJudge===id) asJudge=show.judges[0].id;
+  invalidate(); renderAll();
+});
+$("judgeRoster").addEventListener("change", e=>{
+  const jid=e.target.dataset.confJ, eid=e.target.dataset.confE;
+  if(!jid||!eid) return;
+  const j=show.judges.find(x=>x.id===jid);
+  j.owns = e.target.checked ? [...(j.owns||[]), eid] : (j.owns||[]).filter(x=>x!==eid);
+  invalidate(); renderAll();
+});
+$("f_asjudge").onchange = e => { asJudge=e.target.value; renderJudgeStep(); };
+
+$("judgeBody").addEventListener("change", e=>{
+  const j=judge();
+  const be=e.target.dataset.bndE;
+  if(be){
+    const ent=entries.find(x=>x.id===be);
+    (ent.scores[j.id] ||= {})[e.target.dataset.bndC] = Number(e.target.dataset.bndP);
+    invalidate(); renderJudgeStep(); return;
+  }
+  const ce=e.target.dataset.chkE;
+  if(ce){
+    const ent=entries.find(x=>x.id===ce);
+    const ck=e.target.dataset.chkC, ik=e.target.dataset.chkI;
+    ((ent.checks[j.id] ||= {})[ck] ||= {})[ik] = e.target.checked;
+    const crit=show.criteria.find(c=>c.key===ck);
+    (ent.scores[j.id] ||= {})[ck] = crit.items.reduce((n,it)=> n + (ent.checks[j.id][ck][it.key] ? it.pts : 0), 0);
+    invalidate(); renderJudgeStep(); return;
+  }
+});
+
+$("entries").addEventListener("click", e=>{
+  const id=e.target.dataset.rm; if(!id) return;
+  entries=entries.filter(x=>x.id!==id);
+  show.judges.forEach(j=> j.owns=(j.owns||[]).filter(x=>x!==id));
+  invalidate(); renderAll();
+});
+$("entries").addEventListener("input", e=>{
+  const id=e.target.dataset.e, f=e.target.dataset.f;
+  if(!id || !f) return;
+  const ent=entries.find(x=>x.id===id);
+  ent[f] = f==="litWords" ? Math.max(0, Number(e.target.value)||0) : e.target.value;
+});
+// Re-render only on blur, so the inline preview doesn't flicker mid-typing.
+$("entries").addEventListener("focusout", e=>{
+  if(e.target.dataset.f==="artUrl") renderEntries();
+});
+
+function notify(msg,kind="note"){ $("fetchNote").innerHTML=`<div class="note ${kind}">${esc(msg)}</div>`; }
+
+$("addLink").onclick = async ()=>{
+  const p=parseHorseLink($("f_link").value);
+  if(!p){ notify("That doesn't look like a horse link. Copy the shareable link from the horse's profile page — it needs both the horse and stable parts.","bad"); return; }
+  if(entries.some(e=>e.id===p.horse)){ notify("That horse is already entered.","warn"); return; }
+  notify("Fetching the horse…");
+  const res=await stableGas({action:"loadPublicHorse",horseId:p.horse}, p.stable);
+  if(!res?.success || !res.data){ notify(res?.error||"That stable didn't return the horse.","bad"); return; }
+  entries.push(snapshot(res.data));
+  invalidate(); $("f_link").value="";
+  notify(`${res.data.name} entered. Stats frozen as of now.`,"good");
+  renderAll();
+};
+
+$("demo").onclick = ()=>{
+  const mk=(id,name,breed,s,tack)=>{
+    const base={speed:s,stamina:s,balance:s,strength:s,boldness:s,harmony:s,gaits:s,scope:s,handiness:s};
+    const bonus= tack ? Object.fromEntries(Object.keys(base).map(k=>[k,1])) : {};
+    const eff={...base}; for(const k in bonus) eff[k]+=bonus[k];
+    return {id,name,breed,level:Math.min(10,1+Math.floor((s-10)/2)),
+      baseStats:base,tackBonus:bonus,effectiveStats:eff,artUrl:"", litUrl:"", litWords:0,
+      artLog:[
+        {label:"Hill work at dawn",  statsDelta:{stamina:1,speed:1},    link:"https://example.com/1"},
+        {label:"Long hack",          statsDelta:{stamina:1},            link:"https://example.com/2"},
+        {label:"Hedgerow schooling", statsDelta:{boldness:1,balance:1}, link:"https://example.com/3"},
+      ], scores:{}, checks:{}, submittedAt:new Date().toISOString()};
+  };
+  entries=[
+    mk("h_ash","Ash & Ember","Thoroughbred",20,false),
+    mk("h_bram","Bramblewick","Irish Sport Horse",10,true),
+    mk("h_cind","Cinderfell","Connemara",15,false),
+    mk("h_dun","Dunhollow","Thoroughbred",17,false),
+    mk("h_eir","Eiravale","Irish Draught",12,false),
+  ];
+  invalidate();
+  notify("Demo field loaded. Bramblewick is untrained but wearing +1 tack — flip “Stats counted” to see what that buys him.","good");
+  renderAll();
+};
+
+$("clearEntries").onclick = ()=>{
+  entries=[]; show.judges.forEach(j=>j.owns=[]); invalidate(); $("fetchNote").innerHTML=""; renderAll();
+};
+
+$("runBtn").onclick = ()=>{
+  if(!entries.length){ notify("Add at least one entry before publishing.","warn"); return; }
+  published = runShow(show, entries);
+  renderResults();
+  $("results").scrollIntoView({behavior:"smooth",block:"nearest"});
+};
+
+$("exportBtn").onclick = ()=>{
+  const blob=new Blob([JSON.stringify({show,entries,published},null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=(show.title||"show").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+".json";
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+/* ============================================================
+   MODES — host builds and shares; anyone with the link enters.
+   ============================================================ */
+
+const copyToClipboard = async (text, btn) => {
+  try{ await navigator.clipboard.writeText(text); }
+  catch{ const t=document.createElement("textarea"); t.value=text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+  const was=btn.textContent; btn.textContent="Copied"; setTimeout(()=>btn.textContent=was,1400);
+};
+
+function inviteLink(){
+  return location.origin + location.pathname + "#s=" + encodeShow(show);
+}
+
+/* ---------------- host ---------------- */
+
+function renderInvite(){
+  const el=$("f_invite"); if(!el) return;
+  el.value = inviteLink();
+}
+$("copyInvite").onclick = e => copyToClipboard(inviteLink(), e.target);
+
+function codeNote(msg, kind="note"){ $("codeNote").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
+
+$("addCode").onclick = async ()=>{
+  const raw=$("f_code").value.trim();
+  if(!raw){ codeNote("Paste a code first.","warn"); return; }
+  let dec;
+  try{ dec = decodeEntry(raw, show); }
+  catch(err){ codeNote(esc(err.message),"bad"); return; }
+
+  if(entries.some(e=>e.id===dec.horseId)){ codeNote("That horse is already entered.","warn"); return; }
+  if(show.closesAt && new Date(dec.submittedAt) > new Date(show.closesAt+"T23:59:59")){
+    codeNote("Heads up: this entry was made after the closing date. Accept it or don't — your call.","warn");
+  }
+
+  codeNote("Fetching the horse from its stable…");
+  const res = await stableGas({action:"loadPublicHorse", horseId:dec.horseId}, dec.stable);
+  if(!res?.success || !res.data){ codeNote(esc(res?.error||"That stable didn't return the horse."),"bad"); return; }
+
+  const snap = snapshot(res.data);
+  snap.artUrl=dec.artUrl; snap.litUrl=dec.litUrl; snap.litWords=dec.litWords;
+  snap.submittedAt=dec.submittedAt;
+  snap.tampered = entryTampered(snap, dec, show);
+
+  entries.push(snap);
+  invalidate(); $("f_code").value="";
+  codeNote(snap.tampered
+    ? `<b>${esc(snap.name)} entered — but the stats changed since they submitted.</b> The horse trained after entering, or the code was edited. Their current stats are what will be scored.`
+    : `${esc(snap.name)} entered. Stats fetched from their stable and frozen.`,
+    snap.tampered ? "warn" : "good");
+  renderAll();
+};
+
+/* ---------------- entrant ---------------- */
+
+let evHorse = null;
+
+function entrantMode(code){
+  let s;
+  try{ s = decodeShow(code); }
+  catch(err){
+    $("hostView").innerHTML = `<div class="panel"><div class="note bad">${esc(err.message)}</div></div>`;
+    return;
+  }
+  Object.assign(show, s);
+  $("hostView").classList.add("hide");
+  $("entrantView").classList.remove("hide");
+
+  const stats = DISCIPLINES[show.discipline].stats;
+  const timed = isTimed();
+  $("ev_meta").textContent = `${show.discipline.toUpperCase()} · ENTRIES CLOSE ${show.closesAt}`;
+  $("ev_title").textContent = show.title || "A show";
+  $("ev_sub").textContent = timed
+    ? `${show.raceType} — run on a seeded clock. Lowest time wins.`
+    : (show.blind ? "Judged blind. The judges won't know it's yours." : "Judged with names visible.");
+
+  $("ev_stats").innerHTML = `Scored on <span class="mono">${stats.join(" · ")}</span> from
+    <b>${show.statSource==="effective" ? "effective stats — tack counts" : "base stats only — tack does not count"}</b>.
+    Training past ${show.statCeil} earns nothing here.`;
+
+  $("ev_rubric").innerHTML = timed
+    ? `<div class="small muted">Nothing is judged. Your stats buy time off the clock, and a seeded draw does the rest.</div>`
+    : show.criteria.map(c=>`<div class="crit"><h4>${esc(c.label)}<span>max ${c.max}</span></h4>
+        <div class="help">${esc(c.help||"")}</div>
+        ${c.kind==="checklist"
+          ? `<div class="checks">${c.items.map(i=>`<div class="check">${esc(i.label)}<span class="p">+${i.pts}</span></div>`).join("")}</div>`
+          : `<div class="bands">${c.bands.map(b=>`<div class="band"><span class="p">${b.pts}</span><span class="l">${esc(b.label)}</span><span class="d">${esc(b.desc)}</span></div>`).join("")}</div>`}
+      </div>`).join("");
+
+  if(timed){ $("ev_art").closest(".grid").classList.add("hide"); }
+}
+
+$("ev_check").onclick = async ()=>{
+  const p=parseHorseLink($("ev_link").value);
+  const box=$("ev_horse");
+  if(!p){ box.innerHTML=`<div class="note bad">That doesn't look like a horse link. Copy the shareable link from your horse's profile page — it needs both the horse and stable parts.</div>`; return; }
+  box.innerHTML=`<div class="note">Fetching your horse…</div>`;
+  const res=await stableGas({action:"loadPublicHorse", horseId:p.horse}, p.stable);
+  if(!res?.success || !res.data){ box.innerHTML=`<div class="note bad">${esc(res?.error||"Your stable didn't return that horse.")}</div>`; return; }
+
+  evHorse = snapshot(res.data);
+  evHorse.stable = p.stable;
+  const stats=DISCIPLINES[show.discipline].stats;
+  const pts=statScore(evHorse, show);
+  const ev=trainingEvidence(evHorse, stats);
+
+  box.innerHTML=`<div class="entry" style="margin-top:12px">
+    <div class="row" style="align-items:flex-start">
+      <div style="flex:1"><div class="name">${esc(evHorse.name)}</div>
+        <div class="meta">${esc(evHorse.breed)}${evHorse.breed?" · ":""}Level ${evHorse.level}</div>
+        <div class="statline">${statLine(evHorse)}</div></div>
+      <div class="pts"><b>${pts}</b><div class="small muted">of ${stats.length*10} stat pts</div></div>
+    </div>
+    <details><summary>${ev.length?ev.length+" training entries back these stats":"No training log found"}</summary>
+      ${ev.length?`<ul>${ev.map(x=>`<li>${esc(x.label)} — ${esc(x.raised.join(", "))}</li>`).join("")}</ul>`:""}
+    </details>
+  </div>`;
+};
+
+$("ev_art").addEventListener("blur", ()=>{
+  const u=$("ev_art").value.trim();
+  $("ev_preview").innerHTML = u
+    ? `<div class="artview" style="margin-top:12px"><img src="${esc(u)}" alt="Your entry" loading="lazy" referrerpolicy="no-referrer" /></div>`
+    : "";
+});
+
+$("ev_gen").onclick = ()=>{
+  const out=$("ev_out");
+  if(!evHorse){ out.innerHTML=`<div class="note bad">Check your horse first — we need its stats before you can enter.</div>`; return; }
+  const art=$("ev_art").value.trim();
+  if(!isTimed() && !art){ out.innerHTML=`<div class="note warn">This show is judged on art. Add your art link before generating a code.</div>`; return; }
+
+  const code = encodeEntry(show, {
+    horseId:evHorse.id, stable:evHorse.stable, artUrl:art,
+    litUrl:$("ev_lit").value.trim(), litWords:Number($("ev_wc").value)||0,
+    seenStats:evHorse.baseStats,
+  });
+
+  out.innerHTML=`<div style="margin-top:16px">
+    <label for="ev_code">Your entry code — send this to the host</label>
+    <div class="row">
+      <input id="ev_code" type="text" readonly value="${esc(code)}" style="flex:1;min-width:240px" />
+      <button class="primary" id="ev_copy" type="button">Copy</button>
+    </div>
+    <div class="note good">This code names your horse and its stable — not its stats. The host pulls those
+      from your stable, so nobody can claim a number they didn't train for. If you train
+      <b>${esc(evHorse.name)}</b> after sending this, the host will be told.</div>
+  </div>`;
+  $("ev_copy").onclick = e => copyToClipboard(code, e.target);
+};
+
+/* ---------------- boot ---------------- */
+
+const hash = location.hash.startsWith("#s=") ? location.hash.slice(3) : null;
+show.title=$("f_title").value;
+show.ranking=DISCIPLINES[show.discipline].ranking||"sum";
+if(hash){ entrantMode(hash); }
+else { renderAll(); renderInvite(); }
+</script>
+</body>
+</html>
