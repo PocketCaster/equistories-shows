@@ -1221,12 +1221,20 @@ $("exportBtn").onclick = ()=>{
 // Write: forms can POST cross-origin to Apps Script without a preflight if the
 // body is text/plain. We don't read the response (no-cors) — success is the 200.
 async function mailboxSubmit(mailbox, showId, code){
-  const res = await fetch(mailbox, {
-    method:"POST", mode:"no-cors",
-    headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({action:"submitEntry", show:showId, code}),
+  // JSONP GET (not no-cors POST) so we can actually read the reply and know
+  // whether the mailbox saved it. Falls back to POST if the GET somehow fails.
+  return new Promise(resolve=>{
+    const cb="mbSub_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+    const s=document.createElement("script");
+    let done=false;
+    const finish=d=>{ if(!done){done=true; delete window[cb]; s.remove(); resolve(d);} };
+    window[cb]=finish;
+    s.onerror=()=>finish({success:false,error:"Couldn't reach the mailbox."});
+    setTimeout(()=>finish({success:false,error:"The mailbox didn't answer in time."}),15000);
+    const q=encodeURIComponent(JSON.stringify({action:"submitEntry", show:showId, code}));
+    s.src=mailbox+"?callback="+cb+"&data="+q;
+    document.head.appendChild(s);
   });
-  return true; // no-cors hides the body; the script de-dupes on its side
 }
 
 // Read: JSONP, same trick the stable uses, so the host can GET from any origin.
@@ -1588,16 +1596,17 @@ $("ev_gen").onclick = ()=>{
   const submitBtn=$("ev_submit");
   if(submitBtn) submitBtn.onclick = async e=>{
     e.target.disabled=true; e.target.textContent="Submitting…";
-    try{
-      await mailboxSubmit(show.mailbox, show.id, code);
-      $("ev_submitOut").innerHTML=`<div class="note good" style="margin-top:12px"><b>Entered.</b>
+    const res = await mailboxSubmit(show.mailbox, show.id, code);
+    if(res && res.success){
+      $("ev_submitOut").innerHTML=`<div class="note good" style="margin-top:12px"><b>${res.duplicate?"Already entered.":"Entered."}</b>
         Your piece is in the show. You can close this page — no need to message anyone.
-        <br><span class="mono small" style="color:var(--dim)">filed under show id: ${esc(show.id)}</span></div>`;
+        <br><span class="mono small" style="color:var(--dim)">filed under show id: ${esc(show.id)}${res.ticket?" · ticket "+esc(res.ticket):""}</span></div>`;
       e.target.textContent="Submitted ✓";
-    }catch(err){
+    } else {
       e.target.disabled=false; e.target.textContent="Submit to "+(show.title||"the show");
-      $("ev_submitOut").innerHTML=`<div class="note bad" style="margin-top:12px">Couldn't reach the show mailbox.
-        Copy your code below and send it to the host instead.</div>`;
+      $("ev_submitOut").innerHTML=`<div class="note bad" style="margin-top:12px"><b>The mailbox didn't save it.</b>
+        ${esc(res?.error||"Unknown error")}.<br><span class="mono small">mailbox: ${esc(show.mailbox)}</span>
+        <br>Copy your code below and send it to the host instead.</div>`;
     }
   };
   return;
