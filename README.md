@@ -38,6 +38,21 @@ One mailbox serves all your shows — entries are filed by show id.
 
 Blind judging removes the halo; it can't hide a signature or a familiar style. Ask entrants for unsigned copies.
 
+## Prize pools (optional, Buxx)
+
+Buxx is **held from the host's own account** on funding and **released to winners** at results. No per-show business accounts; entrants type nothing.
+
+**One-time setup (platform owner):**
+1. Make one business account in the bank to act as the escrow vault (e.g. *EquiStories Show Escrow*). Note its `BIZ-` id.
+2. Paste `bank-escrow.gs` into your Buxx Bank script, set `ESCROW_BIZ_ID` to that id, wire the three `handleAction` cases shown at the bottom of the file, and redeploy.
+
+**Per show (host):**
+1. **Sign in** at the top with your Buxx Bank ID — the same login as the main EquiStories site (same origin, so it's one shared session; if you're already signed in there, you're signed in here).
+2. Set per-place Buxx amounts, then hit **Hold** — the buxx moves from your account into escrow.
+3. At results, hit **Release** — escrow pays each winner, and anything unspent returns to you.
+
+**Entrants** sign in the same way. Their entry then carries their *verified* bank userId (the bank checked their password), so prizes reach the right account with nothing typed by hand. Not signing in falls back to a manually entered id.
+
 ## Notes
 
 - Art links must be **`https://`** — an `http://` image silently won't load on a Pages site.
