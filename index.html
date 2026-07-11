@@ -1431,10 +1431,10 @@ $("loadEntries").onclick = async ()=>{
   }
   mailboxStatus("Checking the mailbox…");
   const res = await mailboxList(show.mailbox, show.id);
-  if(!res?.success){ mailboxStatus(esc(res?.error||"The mailbox didn't answer."),"bad"); return; }
+  if(!res?.success){ mailboxStatus(esc(res?.error||"The mailbox didn't answer.")+`<br><span class="mono small">mailbox: ${esc(show.mailbox)}</span>`,"bad"); return; }
 
   const codes = res.entries || [];
-  if(!codes.length){ mailboxStatus("No submissions yet.","note"); return; }
+  if(!codes.length){ mailboxStatus(`No submissions found for this show yet.<br><span class="mono small">looking for show id: ${esc(show.id)}</span><br><span class="small muted">If you just submitted a test, make sure you opened the invite link copied from THIS page — a “New show” or an older link has a different id.</span>`,"warn"); return; }
 
   let added=0, dupes=0, failed=0, flagged=0;
   for(const c of codes){
@@ -1591,7 +1591,8 @@ $("ev_gen").onclick = ()=>{
     try{
       await mailboxSubmit(show.mailbox, show.id, code);
       $("ev_submitOut").innerHTML=`<div class="note good" style="margin-top:12px"><b>Entered.</b>
-        Your piece is in the show. You can close this page — no need to message anyone.</div>`;
+        Your piece is in the show. You can close this page — no need to message anyone.
+        <br><span class="mono small" style="color:var(--dim)">filed under show id: ${esc(show.id)}</span></div>`;
       e.target.textContent="Submitted ✓";
     }catch(err){
       e.target.disabled=false; e.target.textContent="Submit to "+(show.title||"the show");
@@ -1632,7 +1633,12 @@ $("au_go").onclick = async e=>{
   e.target.disabled=true; msg.textContent="Signing in…";
   const res=await bankSignIn(userId, password);
   e.target.disabled=false;
-  if(!res.success){ msg.innerHTML=`<span style="color:var(--rust)">${esc(res.error)}</span>`; return; }
+  if(!res.success){
+    // Diagnostic: show where we called and what came back, so a bad deploy is obvious.
+    msg.innerHTML=`<span style="color:var(--rust)">${esc(res.error||"Sign-in failed.")}</span>`
+      + `<br><span class="mono" style="font-size:.75rem;color:var(--dim)">called: ${esc(bankUrl())}</span>`;
+    return;
+  }
   // stash balance for display (not persisted into the shared cred)
   const b=hostLogin(); if(b){ b._balance=res.balance; }
   $("au_pass").value=""; msg.textContent="";
