@@ -245,6 +245,18 @@
       <div class="note" id="pz_note"></div>
     </div>
 
+    <div id="ribbonWrap" style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+      <label>Placement ribbons <span style="text-transform:none;color:var(--dim)">(optional — image link per place; winners can claim them to their horse's ribbon wall)</span></label>
+      <label class="toggle" style="margin:6px 0 12px"><input type="checkbox" id="rb_gc" />
+        Award <b>Grand Champion</b> to 1st place</label>
+      <div id="rb_gcRow" class="hide" style="margin-bottom:12px">
+        <label for="rb_gcImg" class="small">Grand Champion ribbon image link</label>
+        <input id="rb_gcImg" type="text" placeholder="https://…/grand-champion.png" />
+      </div>
+      <div id="rb_list"></div>
+      <button class="ghost small" id="rb_add" type="button">+ Add a placement</button>
+    </div>
+
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
       <label for="f_invite">Invite link — send this to your community</label>
       <div class="row">
@@ -559,6 +571,8 @@ function encodeShow(show){
     s:show.statSource, l:show.statCeil, r:show.raceType, b:show.blind ? 1 : 0,
     p:show.preset, m:(show.mailbox && show.mailbox !== DEFAULT_MAILBOX) ? show.mailbox : undefined,
     z: (show.prize && prizeCommitted(show)>0) ? { s:show.prize.splits } : undefined,
+    rb: (show.ribbons && (show.ribbons.grandChampion || (show.ribbons.tiers||[]).length))
+        ? { g:show.ribbons.grandChampion||"", t:show.ribbons.tiers||[] } : undefined,
     x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
   });
 }
@@ -573,6 +587,7 @@ function decodeShow(code){
     mailbox: d.m || DEFAULT_MAILBOX,
     prize: d.z ? { splits:d.z.s||[] }
               : { splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
+    ribbons: d.rb ? { grandChampion:d.rb.g||"", tiers:d.rb.t||[] } : { grandChampion:"", tiers:[] },
     judges:[{id:"j_host", name:"Host", owns:[]}],
   };
   show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
@@ -647,6 +662,52 @@ function resolvePayouts(show, results){
 
 function payoutTotal(payouts){ return payouts.reduce((n,p)=> n + p.amount, 0); }
 
+// Placement label: 1->"1st Place", handles 11th/12th/13th, and Grand Champion.
+function placeLabel(n, ribbons){
+  if(ribbons && ribbons.grandChampion && n===1) return "Grand Champion";
+  const s=["th","st","nd","rd"], v=n%100;
+  return n + (s[(v-20)%10] || s[v] || s[0]) + " Place";
+}
+
+// One ribbon record per placed horse, shaped to drop straight into a horse's
+// compHistory so the existing ribbon wall renders it unchanged. Only places the
+// host defined a ribbon (or prize/label) for produce a record.
+function resolveRibbons(show, results, meta){
+  const ribbons = show.ribbons || {tiers:[]};
+  const byPlace = {};
+  (ribbons.tiers||[]).forEach(t=>{ if(t && t.place) byPlace[t.place]=t; });
+  const gc = ribbons.grandChampion || "";
+  const out = [];
+  for(const r of results){
+    const tier = byPlace[r.placement];
+    const isGC = gc && r.placement===1;
+    if(!tier && !isGC) continue;
+    const img = isGC ? gc : (tier ? tier.image : "");
+    out.push({
+      placement: r.placement,
+      label: placeLabel(r.placement, ribbons),
+      customLabel: tier && tier.label ? tier.label : "",
+      image: img || "",
+      name: r.name, horseId: r.id, bankId: r.ownerBankId || r.bankId || null,
+      discipline: (meta&&meta.discipline)||show.discipline,
+      venue: (meta&&meta.title)||show.title||"",
+      date: (meta&&meta.date)||new Date().toISOString().slice(0,10),
+    });
+  }
+  return out;
+}
+
+// Convert a ribbon into the exact compHistory record the main app stores.
+function ribbonToCompRecord(rib){
+  return {
+    id: "show_"+Math.random().toString(36).slice(2,10),
+    discipline: rib.discipline, difficulty: rib.customLabel || rib.label,
+    venue: rib.venue, date: rib.date, placement: rib.placement,
+    note: rib.customLabel ? rib.label : "",
+    image: rib.image || null, link: null, prizes: [],
+  };
+}
+
 function trainingEvidence(horse, stats){
   return (horse.artLog||[])
     .filter(e=> e.statsDelta && stats.some(s=> e.statsDelta[s]))
@@ -666,6 +727,7 @@ function freshShow(){
     blind:true, preset:"Brief-weighted (recommended)",
     mailbox:DEFAULT_MAILBOX,
     prize:{ splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
+    ribbons:{ grandChampion:"", tiers:[] }, // tiers: [{place, label, image}]
     criteria: ART_RUBRIC,
     ranking:"sum",
     judges: [{id:"j_host", name:"Host", owns:[]}],
@@ -1016,8 +1078,43 @@ function renderResults(){
         Stats came from each horse's training log. Judges scored only the art.
       </div>`;
 
-  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel();
-  bindPayout();
+  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel();
+  bindPayout(); bindRibbonClaim();
+}
+
+function ribbonClaimCode(rib){
+  return b64encode({ v:1, horseId:rib.horseId, rec: ribbonToCompRecord(rib) });
+}
+
+// One ribbon per placed horse that the host defined a ribbon for. Each winner gets
+// a claim code they paste into the main EquiStories app to add it to their horse's
+// ribbon wall (the shows app can't write to someone else's horse).
+function ribbonPanel(){
+  if(!published) return "";
+  const ribs = resolveRibbons(show, published.results);
+  if(!ribs.length) return "";
+  const rows = ribs.map(rib=>{
+    const code=ribbonClaimCode(rib);
+    return `<div class="finish" style="grid-template-columns:72px 1fr;align-items:center">
+      <div class="artview" style="max-width:64px">${rib.image?`<img src="${esc(rib.image)}" alt="${esc(rib.label)}" loading="lazy" referrerpolicy="no-referrer" />`:`<div class="empty" style="padding:14px">no img</div>`}</div>
+      <div><div class="name">${esc(rib.name)} — ${esc(rib.customLabel||rib.label)}</div>
+        <div class="row" style="margin-top:6px;gap:8px">
+          <input type="text" readonly value="${esc(code)}" class="mono" style="flex:1;min-width:200px;font-size:.72rem" />
+          <button class="ghost small" data-ribcopy="${esc(code)}" type="button">Copy claim code</button>
+        </div></div>
+    </div>`;
+  }).join("");
+  return `<div class="strip" style="margin-top:16px">
+    <div class="finish" style="grid-template-columns:1fr;background:none"><div><b>Ribbons</b> · send each winner their claim code to add to their horse's ribbon wall</div></div>
+    ${rows}
+    <div class="verify">Winners paste their code into the main EquiStories app (Claim a show ribbon) to hang it on their horse. The shows app can't write to a horse it doesn't own.</div>
+  </div>`;
+}
+
+function bindRibbonClaim(){
+  document.querySelectorAll("[data-ribcopy]").forEach(b=>{
+    b.onclick=e=>copyToClipboard(e.target.dataset.ribcopy, e.target);
+  });
 }
 
 // Payout panel — shown only when the published show has a prize. Computes who is
@@ -1074,7 +1171,7 @@ function bindPayout(){
   };
 }
 
-const renderAll = ()=>{ renderSetup(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); };
+const renderAll = ()=>{ renderSetup(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); renderRibbons(); };
 const invalidate = ()=>{ published=null; persistSoon(); };
 
 /* ============================================================
@@ -1393,6 +1490,63 @@ function bindPrizeInputs(){
   const hb=$("pz_hold"); if(hb) hb.onclick=holdShow;
 }
 bindPrizeInputs();
+
+function renderRibbons(){
+  const w=$("rb_list"); if(!w) return;
+  if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
+  $("rb_gc").checked = !!show.ribbons.grandChampion;
+  $("rb_gcRow").classList.toggle("hide", !show.ribbons.grandChampion);
+  $("rb_gcImg").value = show.ribbons.grandChampion||"";
+  const tiers = show.ribbons.tiers||[];
+  w.innerHTML = tiers.length ? tiers.map((t,i)=>`
+    <div class="entry" style="margin-bottom:8px">
+      <div class="grid" style="grid-template-columns:90px 1fr 1fr auto;align-items:end;gap:10px">
+        <div><label class="small">Place</label><input type="number" min="1" value="${t.place}" data-rb="place" data-i="${i}" /></div>
+        <div><label class="small">Ribbon label (optional)</label><input type="text" value="${esc(t.label||"")}" placeholder="e.g. Blue Ribbon" data-rb="label" data-i="${i}" /></div>
+        <div><label class="small">Ribbon image link</label><input type="text" value="${esc(t.image||"")}" placeholder="https://…/ribbon.png" data-rb="image" data-i="${i}" /></div>
+        <button class="ghost danger small" data-rbdel="${i}" type="button">Remove</button>
+      </div>
+      ${t.image?`<div class="artview" style="margin-top:8px;max-width:120px"><img src="${esc(t.image)}" alt="${esc(placeLabel(t.place,show.ribbons))} ribbon" loading="lazy" referrerpolicy="no-referrer" /></div>`:""}
+    </div>`).join("") : `<div class="small muted" style="margin-bottom:8px">No placement ribbons yet.</div>`;
+}
+
+function bindRibbons(){
+  const add=$("rb_add");
+  if(add) add.onclick=()=>{
+    if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
+    const used=(show.ribbons.tiers||[]).map(t=>t.place);
+    let p=1; while(used.includes(p)) p++;
+    show.ribbons.tiers.push({place:p,label:"",image:""});
+    show.ribbons.tiers.sort((a,b)=>a.place-b.place);
+    invalidate(); renderInvite(); renderRibbons();
+  };
+  const gc=$("rb_gc");
+  if(gc) gc.onchange=e=>{
+    if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
+    if(!e.target.checked) show.ribbons.grandChampion="";
+    else if(!show.ribbons.grandChampion) show.ribbons.grandChampion=" "; // placeholder until a link is typed
+    invalidate(); renderInvite(); renderRibbons();
+  };
+  const gci=$("rb_gcImg");
+  if(gci) gci.oninput=e=>{ show.ribbons.grandChampion=e.target.value.trim(); invalidate(); renderInvite(); };
+
+  const list=$("rb_list");
+  if(list){
+    list.addEventListener("input", e=>{
+      const f=e.target.dataset.rb, i=e.target.dataset.i;
+      if(f===undefined||i===undefined) return;
+      const t=show.ribbons.tiers[i];
+      t[f] = f==="place" ? Math.max(1,Number(e.target.value)||1) : e.target.value.trim();
+      invalidate(); renderInvite();
+      if(f==="image") renderRibbons();
+    });
+    list.addEventListener("click", e=>{
+      const i=e.target.dataset.rbdel; if(i===undefined) return;
+      show.ribbons.tiers.splice(i,1); invalidate(); renderInvite(); renderRibbons();
+    });
+  }
+}
+bindRibbons();
 
 function codeNote(msg, kind="note"){ $("codeNote").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
 
