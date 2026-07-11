@@ -209,13 +209,18 @@
     <div class="note" id="blindNote"></div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+      <label for="f_mailbox">Entry mailbox — your shared Apps Script url <span style="text-transform:none;color:var(--dim)">(optional)</span></label>
+      <input id="f_mailbox" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
+      <div class="note" id="mailboxNote"></div>
+    </div>
+
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
       <label for="f_invite">Invite link — send this to your community</label>
       <div class="row">
         <input id="f_invite" type="text" readonly style="flex:1;min-width:240px" />
         <button class="primary" id="copyInvite" type="button">Copy</button>
       </div>
-      <div class="note">Anyone who opens this gets the show, the rubric, and an entry form. The link
-        <b>is</b> the show — there's nothing to host and nothing to sign up for. They send you back a code.</div>
+      <div class="note" id="inviteNote"></div>
     </div>
   </div>
 </section>
@@ -223,15 +228,25 @@
 <!-- 02 -->
 <section class="step">
   <h2><span class="n">02</span> Entries <span class="hint" id="entryCount">0 entered</span></h2>
-  <div class="panel">
-    <label for="f_code">Paste an entry code someone sent you</label>
-    <div class="row">
-      <input id="f_code" type="text" style="flex:1;min-width:240px" placeholder="eyJ2IjoxLCJzIjoic2hvd18…" />
-      <button class="primary" id="addCode" type="button">Accept entry</button>
+  <div class="panel" id="mailboxPanel">
+    <div class="row" style="justify-content:space-between">
+      <div><label style="margin:0">Submitted entries</label>
+        <div class="small muted">Entrants who used “Submit to show” land here — as tickets, not names.</div></div>
+      <button class="primary" id="loadEntries" type="button">Load submitted entries</button>
     </div>
-    <div class="note">The code carries the horse's link, not its stats. We fetch the stats from that
-      horse's own stable — so nobody can enter a number they didn't earn.</div>
-    <div id="codeNote"></div>
+    <div id="mailboxStatus"></div>
+  </div>
+
+  <div class="panel">
+    <details><summary>Or paste an entry code someone sent you directly</summary>
+      <div class="row" style="margin-top:10px">
+        <input id="f_code" type="text" style="flex:1;min-width:240px" placeholder="eyJ2IjoxLCJzIjoic2hvd18…" />
+        <button class="ghost" id="addCode" type="button">Accept entry</button>
+      </div>
+      <div class="note">The code carries the horse's link, not its stats. We fetch the stats from that
+        horse's own stable — so nobody can enter a number they didn't earn.</div>
+      <div id="codeNote"></div>
+    </details>
 
     <details style="margin-top:14px"><summary>Add a horse directly (for your own entry, or testing)</summary>
       <div class="row" style="margin-top:10px">
@@ -506,7 +521,7 @@ function encodeShow(show){
   return b64encode({
     v:1, i:show.id, t:show.title, d:show.discipline, c:show.closesAt,
     s:show.statSource, l:show.statCeil, r:show.raceType, b:show.blind ? 1 : 0,
-    p:show.preset,
+    p:show.preset, m:show.mailbox || "",
     x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
   });
 }
@@ -518,6 +533,7 @@ function decodeShow(code){
     id:d.i, title:d.t, discipline:d.d, closesAt:d.c,
     statSource:d.s, statCeil:d.l, raceType:d.r, blind:!!d.b,
     preset, criteria: d.x || RUBRIC_PRESETS[preset],
+    mailbox: d.m || "",
     judges:[{id:"j_host", name:"Host", owns:[]}],
   };
   show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
@@ -568,6 +584,7 @@ const show = {
   title:"", discipline:"Fox Hunting", closesAt:"2026-03-31",
   statSource:"base", statCeil:20, raceType:"1 Mile",
   blind:true, preset:"Brief-weighted (recommended)",
+  mailbox:"",
   criteria: ART_RUBRIC,
   judges: [{id:"j_host", name:"Host", owns:[]}],
 };
@@ -630,6 +647,8 @@ function renderSetup(){
   $("presetWrap").classList.toggle("hide", timed);
   $("blindWrap").classList.toggle("hide", timed);
   $("judgeStep").classList.toggle("hide", timed);
+  const mbp=document.getElementById("mailboxPanel");
+  if(mbp) mbp.classList.toggle("hide", !(show.mailbox && isAppsScript(show.mailbox)));
 
   const stats=DISCIPLINES[show.discipline].stats;
   $("statNote").className="note"+(show.statSource==="effective"?" warn":"");
@@ -963,6 +982,41 @@ $("exportBtn").onclick = ()=>{
   a.click(); URL.revokeObjectURL(a.href);
 };
 
+/* ---------------- the shared mailbox (a second Apps Script) ----------------
+   Entrants POST their code in; the host GETs them back. The mailbox stores the
+   opaque code and a random ticket id — never a name. So the host sees a list of
+   tickets, not a list of people. Delivery is anonymised; the code was already.
+--------------------------------------------------------------------------- */
+
+// Write: forms can POST cross-origin to Apps Script without a preflight if the
+// body is text/plain. We don't read the response (no-cors) — success is the 200.
+async function mailboxSubmit(mailbox, showId, code){
+  const res = await fetch(mailbox, {
+    method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({action:"submitEntry", show:showId, code}),
+  });
+  return true; // no-cors hides the body; the script de-dupes on its side
+}
+
+// Read: JSONP, same trick the stable uses, so the host can GET from any origin.
+function mailboxList(mailbox, showId){
+  return new Promise(resolve=>{
+    const cb="mbCb_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+    const s=document.createElement("script");
+    let done=false;
+    const finish=d=>{ if(!done){done=true; delete window[cb]; s.remove(); resolve(d);} };
+    window[cb]=finish;
+    s.onerror=()=>finish({success:false,error:"Couldn't reach the mailbox."});
+    setTimeout(()=>finish({success:false,error:"The mailbox didn't answer in time."}),15000);
+    const q=encodeURIComponent(JSON.stringify({action:"listEntries",show:showId}));
+    s.src=mailbox+"?callback="+cb+"&data="+q;
+    document.head.appendChild(s);
+  });
+}
+
+function isAppsScript(url){ return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/.test(url.trim()); }
+
 /* ============================================================
    MODES — host builds and shares; anyone with the link enters.
    ============================================================ */
@@ -982,39 +1036,95 @@ function inviteLink(){
 function renderInvite(){
   const el=$("f_invite"); if(!el) return;
   el.value = inviteLink();
+
+  const mb = show.mailbox.trim();
+  $("f_mailbox").value = mb;
+  const mbn=$("mailboxNote");
+  if(!mb){
+    mbn.className="note";
+    mbn.innerHTML=`Leave blank and entrants send you a code to paste. Add a mailbox url and they can
+      <b>submit straight to the show</b> — so you never see who sent what. Setup instructions are in the README.`;
+  } else if(!isAppsScript(mb)){
+    mbn.className="note bad";
+    mbn.innerHTML=`That doesn't look like an Apps Script <span class="mono">/exec</span> url.`;
+  } else {
+    mbn.className="note good";
+    mbn.innerHTML=`Entrants can submit anonymously. Their codes collect in the mailbox as tickets.`;
+  }
+
+  const inv=$("inviteNote");
+  inv.className="note";
+  inv.innerHTML = show.mailbox && isAppsScript(show.mailbox)
+    ? `Anyone who opens this gets the show, the rubric, and an entry form with a <b>Submit to show</b> button. Nothing to sign up for.`
+    : `Anyone who opens this gets the show, the rubric, and an entry form. They send you back a code.`;
 }
 $("copyInvite").onclick = e => copyToClipboard(inviteLink(), e.target);
+$("f_mailbox").oninput = e => { show.mailbox=e.target.value; invalidate(); renderInvite(); };
 
 function codeNote(msg, kind="note"){ $("codeNote").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
 
-$("addCode").onclick = async ()=>{
-  const raw=$("f_code").value.trim();
-  if(!raw){ codeNote("Paste a code first.","warn"); return; }
+// Accept one entry code. Fetches stats from the horse's own stable, flags tampering,
+// returns a short status. Used by both the paste box and the mailbox loader.
+async function acceptCode(raw, {silent}={}){
   let dec;
   try{ dec = decodeEntry(raw, show); }
-  catch(err){ codeNote(esc(err.message),"bad"); return; }
+  catch(err){ return {ok:false, msg:err.message}; }
+  if(entries.some(e=>e.id===dec.horseId)) return {ok:false, dup:true, msg:"Already entered."};
 
-  if(entries.some(e=>e.id===dec.horseId)){ codeNote("That horse is already entered.","warn"); return; }
-  if(show.closesAt && new Date(dec.submittedAt) > new Date(show.closesAt+"T23:59:59")){
-    codeNote("Heads up: this entry was made after the closing date. Accept it or don't — your call.","warn");
-  }
-
-  codeNote("Fetching the horse from its stable…");
   const res = await stableGas({action:"loadPublicHorse", horseId:dec.horseId}, dec.stable);
-  if(!res?.success || !res.data){ codeNote(esc(res?.error||"That stable didn't return the horse."),"bad"); return; }
+  if(!res?.success || !res.data) return {ok:false, msg:res?.error||"That stable didn't return the horse."};
 
   const snap = snapshot(res.data);
   snap.artUrl=dec.artUrl; snap.litUrl=dec.litUrl; snap.litWords=dec.litWords;
   snap.submittedAt=dec.submittedAt;
   snap.tampered = entryTampered(snap, dec, show);
-
+  snap.late = show.closesAt && new Date(dec.submittedAt) > new Date(show.closesAt+"T23:59:59");
   entries.push(snap);
-  invalidate(); $("f_code").value="";
-  codeNote(snap.tampered
-    ? `<b>${esc(snap.name)} entered — but the stats changed since they submitted.</b> The horse trained after entering, or the code was edited. Their current stats are what will be scored.`
-    : `${esc(snap.name)} entered. Stats fetched from their stable and frozen.`,
-    snap.tampered ? "warn" : "good");
+  invalidate();
+  return {ok:true, name:snap.name, tampered:snap.tampered, late:snap.late};
+}
+
+$("addCode").onclick = async ()=>{
+  const raw=$("f_code").value.trim();
+  if(!raw){ codeNote("Paste a code first.","warn"); return; }
+  codeNote("Fetching the horse from its stable…");
+  const r=await acceptCode(raw);
+  if(!r.ok){ codeNote(esc(r.msg), r.dup?"warn":"bad"); return; }
+  $("f_code").value="";
+  codeNote(r.tampered
+    ? `<b>${esc(r.name)} entered — but the stats changed since they submitted.</b> Their current stats will be scored.`
+    : `${esc(r.name)} entered. Stats fetched from their stable and frozen.`,
+    r.tampered ? "warn" : "good");
   renderAll();
+};
+
+function mailboxStatus(msg, kind="note"){ $("mailboxStatus").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
+
+$("loadEntries").onclick = async ()=>{
+  if(!show.mailbox || !isAppsScript(show.mailbox)){
+    mailboxStatus("Add your mailbox url up in step 01 first.","warn"); return;
+  }
+  mailboxStatus("Checking the mailbox…");
+  const res = await mailboxList(show.mailbox, show.id);
+  if(!res?.success){ mailboxStatus(esc(res?.error||"The mailbox didn't answer."),"bad"); return; }
+
+  const codes = res.entries || [];
+  if(!codes.length){ mailboxStatus("No submissions yet.","note"); return; }
+
+  let added=0, dupes=0, failed=0, flagged=0;
+  for(const c of codes){
+    const r = await acceptCode(c.code, {silent:true});
+    if(r.ok){ added++; if(r.tampered) flagged++; }
+    else if(r.dup) dupes++;
+    else failed++;
+  }
+  renderAll();
+  mailboxStatus(
+    `${added} new ${added===1?"entry":"entries"} loaded.` +
+    (dupes?` ${dupes} already in.`:"") +
+    (flagged?` <b>${flagged} flagged for changed stats.</b>`:"") +
+    (failed?` ${failed} couldn't be read or their stable didn't answer.`:""),
+    failed||flagged ? "warn" : "good");
 };
 
 /* ---------------- entrant ---------------- */
@@ -1102,17 +1212,45 @@ $("ev_gen").onclick = ()=>{
     seenStats:evHorse.baseStats,
   });
 
+  const canSubmit = show.mailbox && isAppsScript(show.mailbox);
+
   out.innerHTML=`<div style="margin-top:16px">
-    <label for="ev_code">Your entry code — send this to the host</label>
-    <div class="row">
-      <input id="ev_code" type="text" readonly value="${esc(code)}" style="flex:1;min-width:240px" />
-      <button class="primary" id="ev_copy" type="button">Copy</button>
-    </div>
-    <div class="note good">This code names your horse and its stable — not its stats. The host pulls those
+    ${canSubmit ? `<div class="row"><button class="primary" id="ev_submit" type="button">Submit to ${esc(show.title||"the show")}</button>
+      <span class="small muted">goes straight in — the host won't see it came from you</span></div>
+      <div id="ev_submitOut"></div>
+      <details style="margin-top:12px"><summary>Or copy a code to send manually</summary>
+        <div class="row" style="margin-top:10px">
+          <input id="ev_code" type="text" readonly value="${esc(code)}" style="flex:1;min-width:240px" />
+          <button class="ghost" id="ev_copy" type="button">Copy</button>
+        </div></details>`
+    : `<label for="ev_code">Your entry code — send this to the host</label>
+       <div class="row">
+         <input id="ev_code" type="text" readonly value="${esc(code)}" style="flex:1;min-width:240px" />
+         <button class="primary" id="ev_copy" type="button">Copy</button>
+       </div>`}
+    <div class="note good" style="margin-top:12px">This code names your horse and its stable — not its stats. The host pulls those
       from your stable, so nobody can claim a number they didn't train for. If you train
       <b>${esc(evHorse.name)}</b> after sending this, the host will be told.</div>
   </div>`;
-  $("ev_copy").onclick = e => copyToClipboard(code, e.target);
+
+  const copyBtn=$("ev_copy");
+  if(copyBtn) copyBtn.onclick = e => copyToClipboard(code, e.target);
+
+  const submitBtn=$("ev_submit");
+  if(submitBtn) submitBtn.onclick = async e=>{
+    e.target.disabled=true; e.target.textContent="Submitting…";
+    try{
+      await mailboxSubmit(show.mailbox, show.id, code);
+      $("ev_submitOut").innerHTML=`<div class="note good" style="margin-top:12px"><b>Entered.</b>
+        Your piece is in the show. You can close this page — no need to message anyone.</div>`;
+      e.target.textContent="Submitted ✓";
+    }catch(err){
+      e.target.disabled=false; e.target.textContent="Submit to "+(show.title||"the show");
+      $("ev_submitOut").innerHTML=`<div class="note bad" style="margin-top:12px">Couldn't reach the show mailbox.
+        Copy your code below and send it to the host instead.</div>`;
+    }
+  };
+  return;
 };
 
 /* ---------------- boot ---------------- */
