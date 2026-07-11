@@ -362,9 +362,10 @@ const RACE_TYPES = {
 };
 const DEFAULT_TIERS = [{min:20,pts:10},{min:15,pts:8},{min:11,pts:5},{min:0,pts:0}];
 const DEFAULT_MAILBOX = "https://script.google.com/macros/s/AKfycbxJDhhM0OaHB8-BvHuGLs0XByWnYIiuMLqzRkAVo50TBg4sfazthu25QdoqwCBKUSFM/exec";
-// The stable/bank endpoint the main EquiStories site authenticates against. Same
-// value as the main app's DEFAULT_STABLE_URL, so login here == login there.
-const DEFAULT_BANK = "https://script.google.com/macros/s/AKfycbwNF02tC8_U9MjAvJJzjVLNgHUyAf2ND-drxjhQPnOikJdw_seUIIxrYEsTsAlhG-o/exec";
+// The Buxx Bank /exec url — the SAME BANK_URL the main EquiStories app uses for
+// loginPlayer and all money actions (NOT the stable/horse-data url). The escrow
+// functions live here too.
+const DEFAULT_BANK = "https://script.google.com/macros/s/AKfycby9WLxUPDAPg9EH5aTPATzTkHd8XeSKXuQ0WYqyQoHusEbws85qxwaML6cSovDod80/exec";
 
 function cyrb53(str, seed=0){
   let h1=0xdeadbeef^seed, h2=0x41c6ce57^seed;
@@ -1274,7 +1275,8 @@ async function bankSignIn(userId, password){
 }
 function bankSignOut(){ try{ localStorage.removeItem("equi-lite-bank"); }catch{} }
 function bankUrl(){
-  return localStorage.getItem("equi_stable_url") || DEFAULT_BANK || "";
+  // Always the bank — loginPlayer and money actions live here, not on the stable.
+  return DEFAULT_BANK;
 }
 
 function bankCall(payload){
