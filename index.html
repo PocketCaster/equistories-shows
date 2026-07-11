@@ -209,12 +209,6 @@
     <div class="note" id="blindNote"></div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
-      <label for="f_mailbox">Entry mailbox — your shared Apps Script url <span style="text-transform:none;color:var(--dim)">(optional)</span></label>
-      <input id="f_mailbox" type="text" placeholder="https://script.google.com/macros/s/…/exec" />
-      <div class="note" id="mailboxNote"></div>
-    </div>
-
-    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
       <label for="f_invite">Invite link — send this to your community</label>
       <div class="row">
         <input id="f_invite" type="text" readonly style="flex:1;min-width:240px" />
@@ -330,6 +324,7 @@ const RACE_TYPES = {
   "1.25 Miles":[110,20], "1.5 Miles":[130,20], "Steeplechase":[140,20],
 };
 const DEFAULT_TIERS = [{min:20,pts:10},{min:15,pts:8},{min:11,pts:5},{min:0,pts:0}];
+const DEFAULT_MAILBOX = "https://script.google.com/macros/s/AKfycbxJDhhM0OaHB8-BvHuGLs0XByWnYIiuMLqzRkAVo50TBg4sfazthu25QdoqwCBKUSFM/exec";
 
 function cyrb53(str, seed=0){
   let h1=0xdeadbeef^seed, h2=0x41c6ce57^seed;
@@ -521,7 +516,7 @@ function encodeShow(show){
   return b64encode({
     v:1, i:show.id, t:show.title, d:show.discipline, c:show.closesAt,
     s:show.statSource, l:show.statCeil, r:show.raceType, b:show.blind ? 1 : 0,
-    p:show.preset, m:show.mailbox || "",
+    p:show.preset, m:(show.mailbox && show.mailbox !== DEFAULT_MAILBOX) ? show.mailbox : undefined,
     x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
   });
 }
@@ -533,7 +528,7 @@ function decodeShow(code){
     id:d.i, title:d.t, discipline:d.d, closesAt:d.c,
     statSource:d.s, statCeil:d.l, raceType:d.r, blind:!!d.b,
     preset, criteria: d.x || RUBRIC_PRESETS[preset],
-    mailbox: d.m || "",
+    mailbox: d.m || DEFAULT_MAILBOX,
     judges:[{id:"j_host", name:"Host", owns:[]}],
   };
   show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
@@ -584,7 +579,7 @@ const show = {
   title:"", discipline:"Fox Hunting", closesAt:"2026-03-31",
   statSource:"base", statCeil:20, raceType:"1 Mile",
   blind:true, preset:"Brief-weighted (recommended)",
-  mailbox:"",
+  mailbox:DEFAULT_MAILBOX,
   criteria: ART_RUBRIC,
   judges: [{id:"j_host", name:"Host", owns:[]}],
 };
@@ -648,7 +643,7 @@ function renderSetup(){
   $("blindWrap").classList.toggle("hide", timed);
   $("judgeStep").classList.toggle("hide", timed);
   const mbp=document.getElementById("mailboxPanel");
-  if(mbp) mbp.classList.toggle("hide", !(show.mailbox && isAppsScript(show.mailbox)));
+  if(mbp) mbp.classList.toggle("hide", timed);
 
   const stats=DISCIPLINES[show.discipline].stats;
   $("statNote").className="note"+(show.statSource==="effective"?" warn":"");
@@ -1036,30 +1031,12 @@ function inviteLink(){
 function renderInvite(){
   const el=$("f_invite"); if(!el) return;
   el.value = inviteLink();
-
-  const mb = show.mailbox.trim();
-  $("f_mailbox").value = mb;
-  const mbn=$("mailboxNote");
-  if(!mb){
-    mbn.className="note";
-    mbn.innerHTML=`Leave blank and entrants send you a code to paste. Add a mailbox url and they can
-      <b>submit straight to the show</b> — so you never see who sent what. Setup instructions are in the README.`;
-  } else if(!isAppsScript(mb)){
-    mbn.className="note bad";
-    mbn.innerHTML=`That doesn't look like an Apps Script <span class="mono">/exec</span> url.`;
-  } else {
-    mbn.className="note good";
-    mbn.innerHTML=`Entrants can submit anonymously. Their codes collect in the mailbox as tickets.`;
-  }
-
   const inv=$("inviteNote");
-  inv.className="note";
-  inv.innerHTML = show.mailbox && isAppsScript(show.mailbox)
-    ? `Anyone who opens this gets the show, the rubric, and an entry form with a <b>Submit to show</b> button. Nothing to sign up for.`
-    : `Anyone who opens this gets the show, the rubric, and an entry form. They send you back a code.`;
+  inv.className="note good";
+  inv.innerHTML = `Anyone who opens this gets the show, the rubric, and an entry form with a
+    <b>Submit to show</b> button — entries drop straight in, anonymously. Nothing to sign up for.`;
 }
 $("copyInvite").onclick = e => copyToClipboard(inviteLink(), e.target);
-$("f_mailbox").oninput = e => { show.mailbox=e.target.value; invalidate(); renderInvite(); };
 
 function codeNote(msg, kind="note"){ $("codeNote").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
 
