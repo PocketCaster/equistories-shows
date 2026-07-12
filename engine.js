@@ -289,10 +289,11 @@ function statsFingerprint(stats, discipline){
   return cyrb53(keys.map(k=> k+":"+(stats[k]||0)).join("|"));
 }
 
-function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, seenStats}){
+function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, bankId, seenStats}){
   return b64encode({
     v:1, s:show.id, h:horseId, u:stable,
     a:artUrl||"", w:litUrl||"", c:Number(litWords)||0,
+    g:bankId||"",
     t:new Date().toISOString(),
     k: seenStats ? statsFingerprint(seenStats, show.discipline) : null,
   });
@@ -302,7 +303,7 @@ function decodeEntry(code, show){
   if(d.v !== 1) throw new Error("This entry code was made by a different version of Shows.");
   if(show && d.s !== show.id) throw new Error("That code is for a different show.");
   return {showId:d.s, horseId:d.h, stable:d.u, artUrl:d.a, litUrl:d.w,
-          litWords:d.c, submittedAt:d.t, seenFingerprint:d.k};
+          litWords:d.c, bankId:d.g||"", submittedAt:d.t, seenFingerprint:d.k};
 }
 
 // Did the horse change between entering and judging?
@@ -311,10 +312,95 @@ function entryTampered(entry, decoded, show){
   return statsFingerprint(entry.baseStats, show.discipline) !== decoded.seenFingerprint;
 }
 
+/* ---------------- prize pool & payouts ----------------
+   A prize pool is a bank "business" account. The engine only does the MATH:
+   how much is committed, and who is owed what once results are in. Moving buxx
+   (funding, paying) is done by the bank, server-side, behind a password/passcode
+   — never here. These functions touch no network and no secrets.
+------------------------------------------------------- */
+
+// Total buxx the host has assigned across placements.
+function prizeCommitted(show){
+  return (show.prize?.splits || []).reduce((n,s)=> n + (Number(s.amount)||0), 0);
+}
+
+// Turn ranked results into a payout list. Ties split the pooled tiers they span,
+// matching the standard-competition ranking rankScored already produces
+// (two tied for 1st occupy places 1 and 2, so they split prize[1]+prize[2]; the
+// next entry is 3rd and gets prize[3]).
+function resolvePayouts(show, results){
+  const tier = {};
+  (show.prize?.splits || []).forEach(s=>{ if(Number(s.amount)>0) tier[s.place] = Number(s.amount); });
+
+  const byPlace = {};
+  results.forEach(r=> (byPlace[r.placement] ||= []).push(r));
+
+  const payouts = [];
+  for(const p of Object.keys(byPlace).map(Number).sort((a,b)=>a-b)){
+    const group = byPlace[p];
+    let pot = 0;
+    for(let k=0;k<group.length;k++) pot += tier[p+k] || 0;
+    if(pot <= 0) continue;
+    const each = Math.round((pot/group.length)*100)/100;
+    group.forEach(r=> payouts.push({
+      userId: r.ownerBankId || r.bankId || null, name: r.name, placement: p, amount: each,
+    }));
+  }
+  return payouts;
+}
+
+function payoutTotal(payouts){ return payouts.reduce((n,p)=> n + p.amount, 0); }
+
+// Placement label: 1->"1st Place", handles 11th/12th/13th, and Grand Champion.
+function placeLabel(n, ribbons){
+  if(ribbons && ribbons.grandChampion && n===1) return "Grand Champion";
+  const s=["th","st","nd","rd"], v=n%100;
+  return n + (s[(v-20)%10] || s[v] || s[0]) + " Place";
+}
+
+// One ribbon record per placed horse, shaped to drop straight into a horse's
+// compHistory so the existing ribbon wall renders it unchanged. Only places the
+// host defined a ribbon (or prize/label) for produce a record.
+function resolveRibbons(show, results, meta){
+  const ribbons = show.ribbons || {tiers:[]};
+  const byPlace = {};
+  (ribbons.tiers||[]).forEach(t=>{ if(t && t.place) byPlace[t.place]=t; });
+  const gc = ribbons.grandChampion || "";
+  const out = [];
+  for(const r of results){
+    const tier = byPlace[r.placement];
+    const isGC = gc && r.placement===1;
+    if(!tier && !isGC) continue;
+    const img = isGC ? gc : (tier ? tier.image : "");
+    out.push({
+      placement: r.placement,
+      label: placeLabel(r.placement, ribbons),
+      customLabel: tier && tier.label ? tier.label : "",
+      image: img || "",
+      name: r.name, horseId: r.id, bankId: r.ownerBankId || r.bankId || null,
+      discipline: (meta&&meta.discipline)||show.discipline,
+      venue: (meta&&meta.title)||show.title||"",
+      date: (meta&&meta.date)||new Date().toISOString().slice(0,10),
+    });
+  }
+  return out;
+}
+
+// Convert a ribbon into the exact compHistory record the main app stores.
+function ribbonToCompRecord(rib){
+  return {
+    id: "show_"+Math.random().toString(36).slice(2,10),
+    discipline: rib.discipline, difficulty: rib.customLabel || rib.label,
+    venue: rib.venue, date: rib.date, placement: rib.placement,
+    note: rib.customLabel ? rib.label : "",
+    image: rib.image || null, link: null, prizes: [],
+  };
+}
+
 /* ---------------- evidence ---------------- */
 function trainingEvidence(horse, stats){
   return (horse.artLog||[])
-    .filter(e=> e.statsDelta && stats.some(s=> e.statsDelta[s]))
+    .filter(e=> e.type!=="competition" && e.statsDelta && stats.some(s=> e.statsDelta[s]))
     .map(e=>({
       label: e.label || "Training entry",
       link:  e.link || e.image || null,
@@ -327,7 +413,8 @@ if(typeof module !== "undefined") module.exports = {
   cyrb53, mulberry32, raceSeed, blindOrder, median, conflicted,
   criterionScore, judgeCoverage, judgedScore,
   b64encode, b64decode, encodeShow, decodeShow, encodeEntry, decodeEntry,
-  statsFingerprint, entryTampered,
+  statsFingerprint, entryTampered, prizeCommitted, resolvePayouts, payoutTotal,
+  placeLabel, resolveRibbons, ribbonToCompRecord,
   statTierPoints, statScore, scoreEntry, rankScored, runRace, clock,
   runShow, trainingEvidence
 };
