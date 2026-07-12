@@ -710,7 +710,8 @@ function ribbonToCompRecord(rib){
 
 function trainingEvidence(horse, stats){
   return (horse.artLog||[])
-    .filter(e=> e.statsDelta && stats.some(s=> e.statsDelta[s]))
+    // Only real training entries count — shows (type "competition") never do.
+    .filter(e=> e.type!=="competition" && e.statsDelta && stats.some(s=> e.statsDelta[s]))
     .map(e=>({label:e.label||"Training entry", link:e.link||e.image||null,
       raised: stats.filter(s=>e.statsDelta[s]).map(s=> s+" +"+e.statsDelta[s])}));
 }
