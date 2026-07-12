@@ -182,9 +182,7 @@
         <input id="ev_wc" type="number" min="0" value="0" /></div>
     </div>
     <div id="ev_prizeRow" class="hide" style="margin-top:14px">
-      <label for="ev_bank">Your bank User ID <span style="text-transform:none;color:var(--dim)">— usually taken from your horse automatically; add it here only if prizes don't reach you</span></label>
-      <input id="ev_bank" type="text" placeholder="your Buxx Bank userId" style="max-width:340px" />
-      <div class="small muted" style="margin-top:4px">This is just your username, never your password. Leave blank if you'd rather arrange payout yourself.</div>
+      <div class="note good" id="ev_whoami"></div>
     </div>
     <div id="ev_preview"></div>
 
@@ -573,6 +571,7 @@ function encodeShow(show){
     z: (show.prize && prizeCommitted(show)>0) ? { s:show.prize.splits } : undefined,
     rb: (show.ribbons && (show.ribbons.grandChampion || (show.ribbons.tiers||[]).length))
         ? { g:show.ribbons.grandChampion||"", t:show.ribbons.tiers||[] } : undefined,
+    st: show.status==="closed" ? 1 : undefined,
     x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
   });
 }
@@ -588,6 +587,7 @@ function decodeShow(code){
     prize: d.z ? { splits:d.z.s||[] }
               : { splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
     ribbons: d.rb ? { grandChampion:d.rb.g||"", tiers:d.rb.t||[] } : { grandChampion:"", tiers:[] },
+    status: d.st===1 ? "closed" : "open",
     judges:[{id:"j_host", name:"Host", owns:[]}],
   };
   show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
@@ -729,6 +729,7 @@ function freshShow(){
     mailbox:DEFAULT_MAILBOX,
     prize:{ splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
     ribbons:{ grandChampion:"", tiers:[] }, // tiers: [{place, label, image}]
+    status:"open",
     criteria: ART_RUBRIC,
     ranking:"sum",
     judges: [{id:"j_host", name:"Host", owns:[]}],
@@ -878,7 +879,8 @@ function renderSetup(){
   $("f_src").value = show.statSource;
 
   const timed=isTimed();
-  $("modeTag").textContent = timed ? "timed · lowest clock wins" : "scored · highest total wins";
+  $("modeTag").innerHTML = (show.status==="closed"?`<span style="color:var(--rust)">● CLOSED</span> · `:"")
+    + (timed ? "timed · lowest clock wins" : "scored · highest total wins");
   $("raceWrap").classList.toggle("hide", !timed);
   $("presetWrap").classList.toggle("hide", timed);
   $("blindWrap").classList.toggle("hide", timed);
@@ -1158,16 +1160,23 @@ function bindPayout(){
   const go=$("po_go"); if(!go) return;
   go.onclick = async ()=>{
     const st=$("po_status");
+    // Match each payout to that horse's ribbon (if the host defined one), so the
+    // ribbon claim code rides along with the buxx into the winner's notifications.
+    const ribs = resolveRibbons(show, published.results);
+    const ribByUser = {};
+    ribs.forEach(r=>{ const uid=r.bankId; if(uid) ribByUser[uid]=ribbonClaimCode(r); });
+
     const pays=resolvePayouts(show, published.results)
       .filter(p=>p.userId && p.amount>0)
-      .map(p=>({userId:p.userId, amount:p.amount}));
+      .map(p=>({userId:p.userId, amount:p.amount, ribbon:ribByUser[p.userId]||""}));
     if(!pays.length){ st.textContent="No winners have a bank id."; return; }
     go.disabled=true; st.textContent="Releasing…";
     const res=await releasePrize(show.id, pays);
     if(!res?.success){ go.disabled=false; st.innerHTML=`<span style="color:var(--rust)">${esc(res?.error||"Release failed.")}</span>`; return; }
     show.prize._released=true; persist();
     const paid=(res.data?.paid||[]).length, refunded=res.data?.refunded||0;
-    st.innerHTML=`<span style="color:var(--moss)">Paid ${paid}${refunded?`, ฿${refunded} refunded to you`:""} ✓</span>`;
+    const ribCount=Object.keys(ribByUser).length;
+    st.innerHTML=`<span style="color:var(--moss)">Paid ${paid}${refunded?`, ฿${refunded} refunded to you`:""}${ribCount?`, ${ribCount} ribbon${ribCount>1?"s":""} sent`:""} ✓</span>`;
     renderResults();
   };
 }
@@ -1295,10 +1304,13 @@ $("clearEntries").onclick = ()=>{
 };
 
 $("runBtn").onclick = ()=>{
+  if(!hostLogin()){ notify("Sign in at the top to publish — hosting a show requires a bank login.","warn"); $("au_user")?.focus(); return; }
   if(!entries.length){ notify("Add at least one entry before publishing.","warn"); return; }
+  if(show.status!=="closed" && !confirm("Publish results and CLOSE this show? No more entries will be accepted.")) return;
   published = runShow(show, entries);
+  show.status = "closed";   // publishing closes the show to new entries
   persist();
-  renderResults();
+  renderAll();
   $("results").scrollIntoView({behavior:"smooth",block:"nearest"});
 };
 
@@ -1623,12 +1635,15 @@ let evHorse = null;
 // hidden. When not, the manual field stays as an unauthenticated fallback.
 function refreshEntrantAuth(){
   const row=$("ev_prizeRow"); if(!row) return;
-  if(prizeCommitted(show)<=0){ row.classList.add("hide"); return; }
+  const login=hostLogin();
   row.classList.remove("hide");
-  const bank=$("ev_bank"), login=hostLogin();
-  if(login){
-    if(bank){ bank.value=login.userId; bank.disabled=true; bank.closest("#ev_prizeRow").querySelectorAll("label,.muted").forEach(el=>{}); }
-  } else if(bank){ bank.disabled=false; }
+  const who=$("ev_whoami");
+  if(who){
+    who.className = "note " + (login?"good":"warn");
+    who.innerHTML = login
+      ? `Entering as <b>${esc(login.userId)}</b> — prizes and ribbons will reach this account.`
+      : `<b>Sign in at the top to enter.</b> Your entry is tied to your bank login.`;
+  }
 }
 
 function entrantMode(code){
@@ -1641,6 +1656,12 @@ function entrantMode(code){
   Object.assign(show, s);
   $("hostView").classList.add("hide");
   $("entrantView").classList.remove("hide");
+
+  if(show.status==="closed"){
+    $("entrantView").innerHTML = `<div class="panel"><div class="note warn" style="font-size:1rem">
+      <b>${esc(show.title||"This show")} is closed.</b><br>Results have been posted and entries are no longer accepted.</div></div>`;
+    return;
+  }
 
   const stats = DISCIPLINES[show.discipline].stats;
   const timed = isTimed();
@@ -1713,6 +1734,7 @@ $("ev_art").addEventListener("blur", ()=>{
 
 $("ev_gen").onclick = ()=>{
   const out=$("ev_out");
+  if(!hostLogin()){ out.innerHTML=`<div class="note bad">Sign in at the top before entering — your entry is tied to your bank login, and it's how prizes and ribbons reach you.</div>`; $("au_user")?.focus(); return; }
   if(!evHorse){ out.innerHTML=`<div class="note bad">Check your horse first — we need its stats before you can enter.</div>`; return; }
   const art=$("ev_art").value.trim();
   if(!isTimed() && !art){ out.innerHTML=`<div class="note warn">This show is judged on art. Add your art link before generating a code.</div>`; return; }
@@ -1720,7 +1742,7 @@ $("ev_gen").onclick = ()=>{
   const code = encodeEntry(show, {
     horseId:evHorse.id, stable:evHorse.stable, artUrl:art,
     litUrl:$("ev_lit").value.trim(), litWords:Number($("ev_wc").value)||0,
-    bankId:(hostLogin()?.userId || ($("ev_bank")?.value||"").trim()),
+    bankId:hostLogin().userId,   // always the verified signed-in id now
     seenStats:evHorse.baseStats,
   });
 
