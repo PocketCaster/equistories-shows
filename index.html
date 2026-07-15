@@ -218,7 +218,9 @@
         </select></div>
       <div><label for="f_ceil">Stat ceiling</label><input id="f_ceil" type="number" value="20" min="10" /></div>
       <div id="raceWrap" class="hide"><label for="f_race">Distance</label><select id="f_race"></select></div>
-      <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select></div>
+      <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select>
+        <div id="presetInfo"></div>
+      </div>
     </div>
 
     <div id="blindWrap" style="margin-top:16px">
@@ -345,6 +347,73 @@
 </div>
 
 <script>
+// Readiness promise, defined synchronously before the deferred module below.
+window.__equiDBReady = new Promise(resolve => { window.__equiDBResolve = resolve; });
+try{
+  if(new URLSearchParams(location.search).get('fs')==='off'){
+    localStorage.setItem('equi_use_firestore','0');
+    console.warn('[EquiShows] Firestore mode disabled via ?fs=off');
+  }
+}catch(e){}
+</script>
+
+<script type="module">
+// Same Firestore project as the stable manager — both apps are same-origin and
+// share the 'equi_use_firestore' toggle, so turning it on in one turns it on here.
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAJfBnY0sDc6W_yzzrpm8NKkNZv1cu7jMU",
+  authDomain: "equistories-rpg.firebaseapp.com",
+  projectId: "equistories-rpg",
+  storageBucket: "equistories-rpg.firebasestorage.app",
+  messagingSenderId: "801283742596",
+  appId: "1:801283742596:web:370951947bf862efcfdbd1"
+};
+
+let db=null, authOk=false;
+const ready = (async()=>{
+  try{
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    try { await signInAnonymously(getAuth(app)); authOk=true; }
+    catch(e){ console.warn('[EquiDB] anonymous auth unavailable:', e.code||e); }
+    return true;
+  }catch(e){ console.error('[EquiDB] init failed:', e); db=null; return false; }
+})();
+
+window.EquiDB = {
+  ready,
+  get available(){ return !!db; },
+  get authed(){ return authOk; },
+  async put(col, id, owner, obj){
+    if(!db) return false;
+    await setDoc(doc(db, col, String(id)), {
+      owner:String(owner), id:String(id), json:JSON.stringify(obj), updatedAt:new Date().toISOString() });
+    return true;
+  },
+  async get(col, id){
+    if(!db) return null;
+    const s = await getDoc(doc(db, col, String(id)));
+    if(!s.exists()) return null;
+    try { return JSON.parse(s.data().json); } catch(e){ return null; }
+  },
+  async remove(col, id){ if(!db) return false; await deleteDoc(doc(db, col, String(id))); return true; },
+  async listByOwner(col, owner){
+    if(!db) return [];
+    const snap = await getDocs(query(collection(db, col), where('owner','==',String(owner))));
+    const out=[]; snap.forEach(d=>{ try{ out.push(JSON.parse(d.data().json)); }catch(e){} });
+    return out;
+  },
+};
+ready.then(v=>{ try{ window.__equiDBResolve(v); }catch(e){} })
+     .catch(()=>{ try{ window.__equiDBResolve(false); }catch(e){} });
+</script>
+
+<script>
 "use strict";
 
 /* ============================================================
@@ -459,6 +528,49 @@ const RUBRIC_PRESETS = {
     ? {...c, max:20, bands:c.bands.map(b=>({...b, pts:b.pts*2}))} : c),
   "Requirements only": [ART_RUBRIC[0]],
 };
+
+// A plain-language breakdown of whatever rubric is selected, so hosts and
+// entrants can see exactly what is being judged (and what it's worth) instead of
+// having to trust a preset name.
+const PRESET_BLURB = {
+  "Brief-weighted (recommended)":
+    "Rewards following the brief over raw drawing skill. Craft is only 10 of 50, so a simple, accurate, well-staged piece can beat a beautiful one that ignores the brief.",
+  "Craft-weighted":
+    "Same five criteria, but Craft counts double (20 points, out of 60). Use when you want polish and rendering to carry more weight.",
+  "Requirements only":
+    "Just the objective checklist — 10 points, no judgement of art quality at all. Good for casual or beginner-friendly shows.",
+};
+function rubricBreakdownHtml(criteria, presetName){
+  if(!criteria || !criteria.length) return "";
+  const total = criteria.reduce((n,c)=>n+(c.max||0),0);
+  const rows = criteria.map(c=>{
+    const share = total ? Math.round((c.max/total)*100) : 0;
+    let detail = "";
+    if(c.kind==="checklist"){
+      detail = `<ul style="margin:4px 0 0 16px;padding:0;">`
+        + c.items.map(i=>`<li><b>${i.pts} pt${i.pts>1?'s':''}</b> — ${esc(i.label)}</li>`).join("")
+        + `</ul>`;
+    } else if(c.kind==="anchored"){
+      detail = `<div style="margin-top:4px;">`
+        + c.bands.map(b=>`<div style="display:flex;gap:8px;padding:1px 0;">
+             <span style="min-width:34px;text-align:right;font-weight:bold;color:var(--accent,#c98a3a);">${b.pts}</span>
+             <span><b>${esc(b.label)}</b> — ${esc(b.desc)}</span></div>`).join("")
+        + `</div>`;
+    }
+    return `<details style="margin-top:6px;border:1px solid #4a392a;border-radius:6px;padding:6px 8px;background:#15100c;">
+      <summary style="cursor:pointer;">
+        <b>${esc(c.label)}</b> — ${c.max} pts <span style="opacity:.65;">(${share}% of the art score)</span>
+      </summary>
+      <div style="opacity:.85;margin-top:4px;font-style:italic;">${esc(c.help||"")}</div>
+      ${detail}
+    </details>`;
+  }).join("");
+  return `<div class="small" style="margin-top:6px;">
+      <div style="opacity:.85;">${esc(PRESET_BLURB[presetName]||"")}</div>
+      <div style="margin-top:4px;"><b>${total} points total.</b> Click any criterion to see how it's scored.</div>
+      ${rows}
+    </div>`;
+}
 
 const statsFor = (e,show)=> show.statSource==="effective" ? e.effectiveStats : e.baseStats;
 function statTierPoints(v, tiers=DEFAULT_TIERS){ for(const t of tiers){ if(v>=t.min) return t.pts; } return 0; }
@@ -723,6 +835,7 @@ function trainingEvidence(horse, stats){
 function freshShow(){
   return {
     id:"show_"+Math.random().toString(36).slice(2,9),
+    hostId:"",                 // bank userId of the host (stamped on first save)
     title:"", discipline:"Fox Hunting", closesAt:"2026-03-31",
     statSource:"base", statCeil:20, raceType:"1 Mile",
     blind:true, preset:"Brief-weighted (recommended)",
@@ -760,6 +873,37 @@ function saveStore(s){
   catch{ return false; }   // private mode / quota — degrade quietly
 }
 
+// ---------------- Firestore (shared toggle with the stable manager) ----------------
+const FS_FLAG='equi_use_firestore';
+function fsEnabled(){ try{ return localStorage.getItem(FS_FLAG)==='1'; }catch(e){ return false; } }
+async function waitForDB(ms=8000){
+  try{
+    await Promise.race([ window.__equiDBReady||Promise.resolve(false),
+                         new Promise(r=>setTimeout(()=>r(false), ms)) ]);
+  }catch(e){}
+  return (window.EquiDB && window.EquiDB.available) ? window.EquiDB : null;
+}
+// A show lives in ONE document, entries and all — so a host never loses their
+// shows to a cleared browser, and an invite link is a short id instead of the
+// whole show crammed into the URL.
+async function fsSaveShow(){
+  if(!fsEnabled() || entrantView) return false;
+  const DB = await waitForDB(); if(!DB) return false;
+  try{
+    const who = hostLogin();
+    const owner = who && who.userId ? who.userId : 'anon';
+    if(!show.hostId && owner!=='anon') show.hostId = owner;   // stamp the host once
+    await DB.put('shows', show.id, owner, { show:{...show}, entries, published,
+      title: show.title||'Untitled show', discipline: show.discipline, savedAt: Date.now() });
+    return true;
+  }catch(e){ console.error('[EquiDB] saveShow failed:', e); return false; }
+}
+async function fsLoadShow(showId){
+  const DB = await waitForDB(); if(!DB) return null;
+  try{ return await DB.get('shows', showId); }
+  catch(e){ console.error('[EquiDB] loadShow failed:', e); return null; }
+}
+
 let saveTimer=null;
 function persistSoon(){ if(entrantView) return; clearTimeout(saveTimer); saveTimer=setTimeout(persist, 400); }
 
@@ -773,6 +917,7 @@ function persist(){
   };
   store.currentId = show.id;
   const ok = saveStore(store);
+  fsSaveShow();   // fire-and-forget: also persist to the shared database
   renderShowBar(ok);
 }
 
@@ -872,6 +1017,8 @@ function renderSetup(){
   $("f_disc").innerHTML = Object.keys(DISCIPLINES).map(d=>`<option ${d===show.discipline?"selected":""}>${esc(d)}</option>`).join("");
   $("f_race").innerHTML = Object.keys(RACE_TYPES).map(r=>`<option ${r===show.raceType?"selected":""}>${esc(r)}</option>`).join("");
   $("f_preset").innerHTML = Object.keys(RUBRIC_PRESETS).map(p=>`<option ${p===show.preset?"selected":""}>${esc(p)}</option>`).join("");
+  const pinfo=$("presetInfo");
+  if(pinfo) pinfo.innerHTML = rubricBreakdownHtml(show.criteria, show.preset);
   $("f_blind").checked = show.blind;
   if(document.activeElement!==$("f_title")) $("f_title").value = show.title;
   $("f_closes").value = show.closesAt;
@@ -1435,6 +1582,10 @@ const copyToClipboard = async (text, btn) => {
 };
 
 function inviteLink(){
+  // With the database on, the invite is just the show's id — short, and it always
+  // reflects the live show. Without it, fall back to packing the whole show into
+  // the URL fragment (the original scheme; those links keep working either way).
+  if(fsEnabled()) return location.origin + location.pathname + "?show=" + encodeURIComponent(show.id);
   return location.origin + location.pathname + "#s=" + encodeShow(show);
 }
 
@@ -1686,9 +1837,14 @@ function entrantMode(code){
     <b>${show.statSource==="effective" ? "effective stats — tack counts" : "base stats only — tack does not count"}</b>.
     Training past ${show.statCeil} earns nothing here.`;
 
+  const ruTotal = (show.criteria||[]).reduce((n,c)=>n+(c.max||0),0);
   $("ev_rubric").innerHTML = timed
     ? `<div class="small muted">Nothing is judged. Your stats buy time off the clock, and a seeded draw does the rest.</div>`
-    : show.criteria.map(c=>`<div class="crit"><h4>${esc(c.label)}<span>max ${c.max}</span></h4>
+    : `<div class="small" style="margin-bottom:8px;opacity:.85;">Judged out of <b>${ruTotal}</b> points across ${show.criteria.length} criteria${
+        (show.criteria.find(c=>c.key==='craft')
+          ? ` — drawing skill (Craft) is only <b>${show.criteria.find(c=>c.key==='craft').max}</b> of them.`
+          : '.')}</div>`
+      + show.criteria.map(c=>`<div class="crit"><h4>${esc(c.label)}<span>max ${c.max} · ${ruTotal?Math.round(c.max/ruTotal*100):0}%</span></h4>
         <div class="help">${esc(c.help||"")}</div>
         ${c.kind==="checklist"
           ? `<div class="checks">${c.items.map(i=>`<div class="check">${esc(i.label)}<span class="p">+${i.pts}</span></div>`).join("")}</div>`
@@ -1837,8 +1993,32 @@ $("au_go").onclick = async e=>{
 $("au_out").onclick = ()=>{ bankSignOut(); refreshAfterAuth(); $("au_msg").textContent=""; };
 
 const hash = location.hash.startsWith("#s=") ? location.hash.slice(3) : null;
+const showParam = new URLSearchParams(location.search).get('show');
 renderAuth();
-if(hash){
+if(showParam){
+  // Database-backed invite: load the live show by id.
+  (async()=>{
+    const rec = await fsLoadShow(showParam);
+    if(rec && rec.show){
+      const me = hostLogin();
+      Object.assign(show, rec.show);
+      entries   = rec.entries || [];
+      published = rec.published || null;
+      // The host opening their own link gets the full workspace; everyone else
+      // gets the read-only entrant view.
+      const isHost = me && me.userId && rec.show.hostId && me.userId===rec.show.hostId;
+      entrantView = !isHost;
+      show.ranking = DISCIPLINES[show.discipline]?.ranking || show.ranking || "sum";
+      renderAll(); renderInvite();
+      if(!entrantView) persist();
+    }else{
+      document.body.innerHTML='<div style="font-family:Georgia,serif;color:#f1e6d8;background:#241a14;border:1px solid #c98a3a;border-radius:8px;max-width:560px;margin:60px auto;padding:24px;">'
+        +'<h3 style="color:#c98a3a;margin-top:0;">Show not found</h3>'
+        +'<p>That invite link points to a show this database doesn\'t have. It may have been removed, or the link may be from a different host.</p>'
+        +'<p><a href="'+location.pathname+'" style="color:#c98a3a;">← Back to the shows app</a></p></div>';
+    }
+  })();
+} else if(hash){
   entrantView = true;               // entrant sessions never read or write host storage
   entrantMode(hash);
 } else {
