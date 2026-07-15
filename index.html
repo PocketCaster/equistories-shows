@@ -135,7 +135,7 @@
 </style>
 </head>
 <body>
-<div style="background:#15100c;border-bottom:1px solid #4a392a;padding:8px 16px;font-family:Georgia,serif;"><a data-hublink href="https://pocketcaster.github.io/equistories-hub/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">&#8592; Community Hub</a><span style="color:#6a5a4a;margin:0 8px;">|</span><a href="https://pocketcaster.github.io/Equistories-stable-manager/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">Stable Manager</a></div>
+<div style="background:#15100c;border-bottom:1px solid #4a392a;padding:8px 16px;font-family:Georgia,serif;"><a data-hublink href="https://pocketcaster.github.io/Equistories-Home/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">&#8592; Community Hub</a><span style="color:#6a5a4a;margin:0 8px;">|</span><a href="https://pocketcaster.github.io/Equistories-stable-manager/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">Stable Manager</a></div>
 
 <div class="wrap">
 
@@ -147,7 +147,7 @@
 <div class="panel" id="authBar" style="margin-bottom:22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <span id="authState" class="small"></span>
   <div id="authForm" class="row" style="gap:8px;flex:1;justify-content:flex-end">
-    <input id="au_user" type="text" placeholder="Bank User ID" style="width:auto;min-width:150px" />
+    <input id="au_user" type="email" placeholder="Email" autocomplete="username" style="width:auto;min-width:170px" />
     <input id="au_pass" type="password" placeholder="Password" style="width:auto;min-width:130px" />
     <button class="primary" id="au_go" type="button">Sign in</button>
   </div>
@@ -365,7 +365,9 @@ try{
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+         sendPasswordResetEmail, signOut as fbSignOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAJfBnY0sDc6W_yzzrpm8NKkNZv1cu7jMU",
@@ -376,16 +378,53 @@ const firebaseConfig = {
   appId: "1:801283742596:web:370951947bf862efcfdbd1"
 };
 
-let db=null, authOk=false;
+let db=null, authOk=false, auth=null;
 const ready = (async()=>{
   try{
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
-    try { await signInAnonymously(getAuth(app)); authOk=true; }
-    catch(e){ console.warn('[EquiDB] anonymous auth unavailable:', e.code||e); }
+    auth = getAuth(app);
+    await new Promise(res=>{ const un=onAuthStateChanged(auth, ()=>{ un(); res(); }); });
+    if(!auth.currentUser){
+      try { await signInAnonymously(auth); } catch(e){ console.warn('[EquiDB] anon auth off:', e.code||e); }
+    }
+    authOk = !!auth.currentUser;
     return true;
   }catch(e){ console.error('[EquiDB] init failed:', e); db=null; return false; }
 })();
+
+const friendlyAuth = e => ({
+  'auth/invalid-email':"That email address doesn't look right.",
+  'auth/user-not-found':'No account found with that email.',
+  'auth/wrong-password':'Incorrect password.',
+  'auth/invalid-credential':'Incorrect email or password.',
+  'auth/email-already-in-use':'That email already has an account — sign in instead.',
+  'auth/weak-password':'Password must be at least 6 characters.',
+  'auth/too-many-requests':'Too many attempts. Wait a minute and try again.',
+}[e && e.code] || (e && e.message) || 'Something went wrong.');
+
+window.EquiAuth = {
+  ready,
+  get user(){ return auth && auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser : null; },
+  get email(){ const u=this.user; return u ? u.email : ''; },
+  async token(){ const u=this.user; if(!u) return null; try{ return await u.getIdToken(); }catch(e){ return null; } },
+  async signIn(email,password){
+    try{ const c=await signInWithEmailAndPassword(auth,email,password); return {success:true,user:c.user}; }
+    catch(e){ return {success:false,error:friendlyAuth(e)}; }
+  },
+  async signUp(email,password){
+    try{ const c=await createUserWithEmailAndPassword(auth,email,password); return {success:true,user:c.user}; }
+    catch(e){ return {success:false,error:friendlyAuth(e)}; }
+  },
+  async resetPassword(email){
+    try{ await sendPasswordResetEmail(auth,email); return {success:true}; }
+    catch(e){ return {success:false,error:friendlyAuth(e)}; }
+  },
+  async signOut(){
+    try{ await fbSignOut(auth); }catch(e){}
+    try{ await signInAnonymously(auth); }catch(e){}
+  },
+};
 
 window.EquiDB = {
   ready,
@@ -1529,18 +1568,26 @@ function hostLogin(){
 }
 // Sign in exactly as the main site does: verify with loginPlayer, then store the
 // same {userId, password, linked} under the same key. Same origin => same session.
-async function bankSignIn(userId, password){
-  const res = await bankCall({action:"loginPlayer", userId, password});
-  if(res?.success){
-    localStorage.setItem("equi-lite-bank", JSON.stringify({userId, password, linked:true}));
-    let displayName = res.data?.displayName || userId, balance = null;
-    const bal = await bankCall({action:"checkBalance", userId});
-    if(bal?.success) balance = bal.data?.balance ?? null;
-    return {success:true, userId, displayName, balance};
+// Identity is Firebase now: sign in with EMAIL, then ask the bank which stable
+// this login owns. No password is ever sent to the bank or put in a URL.
+async function bankSignIn(email, password){
+  if(!window.EquiAuth) return {success:false, error:"Auth is still loading — try again in a second."};
+  const a = await window.EquiAuth.signIn(email, password);
+  if(!a.success) return {success:false, error:a.error};
+  const token = await window.EquiAuth.token();
+  const who = await bankCall({action:"getMyAccount", idToken:token});
+  if(!who?.success) return {success:false, error:who?.error||"Could not reach the bank."};
+  if(!who.data?.linked){
+    await window.EquiAuth.signOut();
+    return {success:false, error:"That login isn't connected to a stable yet. Open the Stable Manager and link it first."};
   }
-  return {success:false, error:res?.error||"Sign-in failed."};
+  localStorage.setItem("equi-lite-bank", JSON.stringify({userId:who.data.userId, password:"", linked:true}));
+  return {success:true, userId:who.data.userId, displayName:who.data.displayName, balance:who.data.balance};
 }
-function bankSignOut(){ try{ localStorage.removeItem("equi-lite-bank"); }catch{} }
+function bankSignOut(){
+  try{ localStorage.removeItem("equi-lite-bank"); }catch{}
+  if(window.EquiAuth) window.EquiAuth.signOut();
+}
 function bankUrl(){
   // Always the bank — loginPlayer and money actions live here, not on the stable.
   return DEFAULT_BANK;
@@ -1564,11 +1611,20 @@ function bankCall(payload){
 const escrowStatus = showId => bankCall({action:"getShowEscrow", showId});
 function holdPrize(showId, amount){
   const l=hostLogin(); if(!l) return Promise.resolve({success:false,error:"not signed in"});
-  return bankCall({action:"holdShowPrize", showId, funderId:l.userId, password:l.password, amount});
+  return (async()=>{
+    const idToken = window.EquiAuth ? await window.EquiAuth.token() : null;
+    return bankCall({action:"holdShowPrize", showId, funderId:l.userId,
+                     idToken:idToken||undefined, password:idToken?undefined:l.password, amount});
+  })();
 }
 function releasePrize(showId, payouts){
   const l=hostLogin(); if(!l) return Promise.resolve({success:false,error:"not signed in"});
-  return bankCall({action:"releaseShowPrize", showId, funderId:l.userId, password:l.password, payouts:JSON.stringify(payouts)});
+  return (async()=>{
+    const idToken = window.EquiAuth ? await window.EquiAuth.token() : null;
+    return bankCall({action:"releaseShowPrize", showId, funderId:l.userId,
+                     idToken:idToken||undefined, password:idToken?undefined:l.password,
+                     payouts:JSON.stringify(payouts)});
+  })();
 }
 
 
