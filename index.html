@@ -5,26 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>EquiStories Shows</title>
 <style>
+  /* Same responsive root size the Hub and Stable Manager use, so the three
+     apps read at identical scale. */
+  html { font-size: clamp(16px, 0.6vw + 14px, 23px); -webkit-text-size-adjust:100%; }
   :root{
-    --ink:#15100c; --panel:#1c1510; --raised:#241a13; --line:#4a392a;
-    --amber:#c98a3a; --parchment:#e8dcc8; --dim:#b5a392; --moss:#7a9b6e; --rust:#b5533a;
+    /* Hub palette, mapped onto this app's names:
+       --bg = hub --bg, --ink = hub --deep (inputs/insets), --panel = hub --panel,
+       --parchment = hub --text, --moss/--rust = hub --good/--bad */
+    --bg:#1b1410; --ink:#15100c; --panel:#241a14; --raised:#2c2118; --line:#4a392a;
+    --amber:#c98a3a; --parchment:#f1e6d8; --dim:#b5a392; --moss:#7a9b6e; --rust:#c96a3a;
     --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--ink);color:var(--parchment);font:16px/1.55 Georgia,"Iowan Old Style",serif}
+  body{margin:0;background:var(--bg);color:var(--parchment);font:1rem/1.6 Georgia,'Palatino Linotype',serif}
   .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
 
-  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:28px}
-  h1{font-size:1.9rem;margin:0}
-  h1 em{color:var(--amber);font-style:normal}
-  .tagline{color:var(--dim);font-size:.95rem;margin-top:6px}
+  header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#2c1f16,#1b1410)}
+  header .wrap{padding:22px 20px 18px}
+  h1{font-size:clamp(1.6rem,4vw,2.4rem);margin:0;color:var(--amber);letter-spacing:.5px}
+  h1 em{font-style:normal;color:var(--parchment)}
+  .tagline{color:var(--dim);font-size:.95rem;margin:4px 0 0}
 
   .step{margin:0 0 34px}
   .step > h2{font-size:1.05rem;margin:0 0 14px;font-weight:normal;display:flex;align-items:baseline;gap:10px}
   .step > h2 .n{font:600 .78rem/1 var(--mono);color:var(--amber);border:1px solid var(--line);border-radius:3px;padding:5px 7px}
   .step > h2 .hint{color:var(--dim);font-size:.85rem;margin-left:auto;font-family:var(--mono)}
 
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
 
   label{display:block;font-size:.8rem;color:var(--dim);margin-bottom:5px;letter-spacing:.04em;text-transform:uppercase}
   input,select,button{font-family:inherit;font-size:.95rem}
@@ -35,7 +42,7 @@
   :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
 
-  button{background:var(--raised);color:var(--parchment);border:1px solid var(--line);border-radius:5px;padding:9px 16px;cursor:pointer}
+  button{background:var(--raised);color:var(--parchment);border:1px solid var(--line);border-radius:6px;padding:9px 16px;cursor:pointer}
   button:hover{border-color:var(--amber);color:var(--amber)}
   button.primary{background:var(--amber);color:var(--ink);border-color:var(--amber);font-weight:bold}
   button.primary:hover{filter:brightness(1.1);color:var(--ink)}
@@ -104,7 +111,7 @@
   .chip.conf{border-color:var(--rust);color:var(--rust)}
 
   /* signature: the finish strip */
-  .strip{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+  .strip{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
   .finish{display:grid;grid-template-columns:56px 1fr auto auto;gap:14px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
   .finish:last-of-type{border-bottom:none}
   .finish.win{background:linear-gradient(90deg,rgba(201,138,58,.13),transparent 65%)}
@@ -137,12 +144,14 @@
 <body>
 <div style="background:#15100c;border-bottom:1px solid #4a392a;padding:8px 16px;font-family:Georgia,serif;"><a data-hublink href="https://pocketcaster.github.io/Equistories-Home/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">&#8592; Community Hub</a><span style="color:#6a5a4a;margin:0 8px;">|</span><a href="https://pocketcaster.github.io/Equistories-stable-manager/" style="color:#c98a3a;text-decoration:none;font-size:1.02em;">Stable Manager</a></div>
 
-<div class="wrap">
-
 <header>
-  <h1>EquiStories <em>Shows</em></h1>
-  <div class="tagline">Anyone can host. Stats score themselves. Races can't be re-rolled, and the judge doesn't know whose art it is.</div>
+  <div class="wrap">
+    <h1>EquiStories <em>Shows</em></h1>
+    <div class="tagline">Anyone can host. Stats score themselves. Races can't be re-rolled, and the judge doesn't know whose art it is.</div>
+  </div>
 </header>
+
+<div class="wrap">
 
 <div class="panel" id="authBar" style="margin-bottom:22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <span id="authState" class="small"></span>
