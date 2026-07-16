@@ -150,6 +150,7 @@
     <input id="au_user" type="email" placeholder="Email" autocomplete="username" style="width:auto;min-width:170px" />
     <input id="au_pass" type="password" placeholder="Password" style="width:auto;min-width:130px" />
     <button class="primary" id="au_go" type="button">Sign in</button>
+    <a href="#" id="au_forgot" class="small" style="color:var(--dim);white-space:nowrap">Forgot password?</a>
   </div>
   <button class="ghost small" id="au_out" type="button">Sign out</button>
   <span class="small muted" id="au_msg" style="width:100%"></span>
@@ -1568,13 +1569,12 @@ function isAppsScript(url){ return /^https:\/\/script\.google\.com\/macros\/s\/[
 function hostLogin(){
   try{
     const b=JSON.parse(localStorage.getItem("equi-lite-bank")||"null");
-    if(b && b.linked && b.userId && b.password) return b;
+    // Firebase-era records store password:"" — a session is valid without one.
+    if(b && b.linked && b.userId) return b;
   }catch{}
   return null;
 }
-// Sign in exactly as the main site does: verify with loginPlayer, then store the
-// same {userId, password, linked} under the same key. Same origin => same session.
-// Identity is Firebase now: sign in with EMAIL, then ask the bank which stable
+// Identity is Firebase: sign in with EMAIL, then ask the bank which stable
 // this login owns. No password is ever sent to the bank or put in a URL.
 async function bankSignIn(email, password){
   if(!window.EquiAuth) return {success:false, error:"Auth is still loading — try again in a second."};
@@ -1619,6 +1619,7 @@ function holdPrize(showId, amount){
   const l=hostLogin(); if(!l) return Promise.resolve({success:false,error:"not signed in"});
   return (async()=>{
     const idToken = window.EquiAuth ? await window.EquiAuth.token() : null;
+    if(!idToken && !l.password) return {success:false, error:"Your session expired — sign in again at the top."};
     return bankCall({action:"holdShowPrize", showId, funderId:l.userId,
                      idToken:idToken||undefined, password:idToken?undefined:l.password, amount});
   })();
@@ -1627,6 +1628,7 @@ function releasePrize(showId, payouts){
   const l=hostLogin(); if(!l) return Promise.resolve({success:false,error:"not signed in"});
   return (async()=>{
     const idToken = window.EquiAuth ? await window.EquiAuth.token() : null;
+    if(!idToken && !l.password) return {success:false, error:"Your session expired — sign in again at the top."};
     return bankCall({action:"releaseShowPrize", showId, funderId:l.userId,
                      idToken:idToken||undefined, password:idToken?undefined:l.password,
                      payouts:JSON.stringify(payouts)});
@@ -2018,7 +2020,7 @@ function renderAuth(){
     state.innerHTML = `Signed in as <b>${esc(login.userId)}</b>${login._balance!=null?` · ฿${login._balance}`:""}`;
     form.classList.add("hide"); out.classList.remove("hide");
   } else {
-    state.innerHTML = `<span class="muted">Sign in with your Buxx Bank ID — same login as the main EquiStories site.</span>`;
+    state.innerHTML = `<span class="muted">Sign in with your email — same login as the main EquiStories site.</span>`;
     form.classList.remove("hide"); out.classList.add("hide");
   }
   // entrant field only matters when not signed in
@@ -2035,7 +2037,7 @@ function refreshAfterAuth(){
 $("au_go").onclick = async e=>{
   const userId=$("au_user").value.trim(), password=$("au_pass").value.trim();
   const msg=$("au_msg");
-  if(!userId||!password){ msg.textContent="Enter your User ID and password."; return; }
+  if(!userId||!password){ msg.textContent="Enter your email and password."; return; }
   e.target.disabled=true; msg.textContent="Signing in…";
   const res=await bankSignIn(userId, password);
   e.target.disabled=false;
@@ -2055,6 +2057,17 @@ $("au_go").onclick = async e=>{
   refreshAfterAuth();
 };
 $("au_out").onclick = ()=>{ bankSignOut(); refreshAfterAuth(); $("au_msg").textContent=""; };
+$("au_forgot").onclick = async e=>{
+  e.preventDefault();
+  const email=$("au_user").value.trim(), msg=$("au_msg");
+  if(!email){ msg.textContent="Type your email above first, then click Forgot password."; $("au_user").focus(); return; }
+  if(!window.EquiAuth){ msg.textContent="Auth is still loading — try again in a second."; return; }
+  msg.textContent="Sending reset email…";
+  const r=await window.EquiAuth.resetPassword(email);
+  msg.innerHTML = r.success
+    ? `Reset email sent to <b>${esc(email)}</b> — check your inbox (and spam).`
+    : `<span style="color:var(--rust)">${esc(r.error||"Couldn't send the reset email.")}</span>`;
+};
 
 // All three apps share an origin, so Firebase already remembers you across them —
 // but this page only ever looked at localStorage. If Firebase has a session and we
