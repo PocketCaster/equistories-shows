@@ -365,7 +365,7 @@ try{
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+import { getAuth, signInAnonymously, signInWithCustomToken, signInWithEmailAndPassword, createUserWithEmailAndPassword,
          sendPasswordResetEmail, signOut as fbSignOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -419,6 +419,12 @@ window.EquiAuth = {
   async resetPassword(email){
     try{ await sendPasswordResetEmail(auth,email); return {success:true}; }
     catch(e){ return {success:false,error:friendlyAuth(e)}; }
+  },
+  // Swap the random email-account session for one whose uid IS the bank userId.
+  // After this, Firestore rules can trust request.auth.uid as the true owner.
+  async upgradeToOwner(customToken){
+    try{ await signInWithCustomToken(auth, customToken); return true; }
+    catch(e){ console.error('[EquiAuth] owner upgrade failed:', e.code||e); return false; }
   },
   async signOut(){
     try{ await fbSignOut(auth); }catch(e){}
