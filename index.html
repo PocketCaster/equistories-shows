@@ -231,10 +231,9 @@
         </select></div>
       <div><label for="f_ceil">Stat ceiling</label><input id="f_ceil" type="number" value="20" min="10" /></div>
       <div id="raceWrap" class="hide"><label for="f_race">Distance</label><select id="f_race"></select></div>
-      <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select>
-        <div id="presetInfo"></div>
-      </div>
+      <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select></div>
     </div>
+    <div id="presetInfo" style="margin-top:12px"></div>
 
     <div id="blindWrap" style="margin-top:16px">
       <label class="toggle"><input type="checkbox" id="f_blind" checked />
@@ -1088,6 +1087,7 @@ function renderSetup(){
     + (timed ? "timed · lowest clock wins" : "scored · highest total wins");
   $("raceWrap").classList.toggle("hide", !timed);
   $("presetWrap").classList.toggle("hide", timed);
+  $("presetInfo").classList.toggle("hide", timed);
   $("blindWrap").classList.toggle("hide", timed);
   $("judgeStep").classList.toggle("hide", timed);
   const mbp=document.getElementById("mailboxPanel");
