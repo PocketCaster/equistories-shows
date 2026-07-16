@@ -1671,10 +1671,34 @@ function renderInvite(){
   el.value = inviteLink();
   const inv=$("inviteNote");
   inv.className="note good";
-  inv.innerHTML = `Anyone who opens this gets the show, the rubric, and an entry form with a
-    <b>Submit to show</b> button — entries drop straight in, anonymously. Nothing to sign up for.`;
+  if(fsEnabled()){
+    inv.innerHTML = `This link is <b>permanent</b> — it's the show's id, minted when the show was created.
+      Edits update the show behind the same link; it never changes. Entrants get the rubric and an entry form.
+      Opening it yourself shows <b>you</b> the host workspace (you're the host) —
+      <a href="${esc(inviteLink())}&as=entrant" target="_blank" rel="noopener" style="color:var(--amber)">preview what entrants will see ↗</a>`;
+  }else{
+    inv.innerHTML = `Anyone who opens this gets the show, the rubric, and an entry form with a
+      <b>Submit to show</b> button — entries drop straight in, anonymously. Nothing to sign up for.`;
+  }
 }
-$("copyInvite").onclick = e => copyToClipboard(inviteLink(), e.target);
+$("copyInvite").onclick = async e => {
+  const btn = e.target;
+  // A ?show= link only works if the show actually exists in the database —
+  // make sure of that BEFORE handing out the link, and say why if it can't.
+  if(fsEnabled() && !entrantView){
+    btn.disabled = true; btn.textContent = "Saving…";
+    const ok = await fsSaveShow();
+    btn.disabled = false; btn.textContent = "Copy";
+    if(!ok){
+      const inv=$("inviteNote"); inv.className="note bad";
+      inv.innerHTML = hostLogin()
+        ? `The show could not be saved to the database, so this link would come up “Show not found”. Check your connection and try again — the browser console (F12) has the exact error.`
+        : `<b>Sign in at the top first.</b> The invite link only goes live once the show is saved to the database under your name — that's also what locks you in as its host.`;
+      return;
+    }
+  }
+  copyToClipboard(inviteLink(), btn);
+};
 $("showPicker").onchange = e => { persist(); if(restore(e.target.value)){ renderAll(); renderInvite(); } };
 $("newShow").onclick = newShow;
 $("delShow").onclick = deleteShow;
@@ -1880,6 +1904,13 @@ function entrantMode(code){
     return;
   }
   Object.assign(show, s);
+  entrantScreen();
+}
+
+// Build the entrant view from whatever is in `show` right now. Called by both
+// invite styles: legacy #s= blobs (via entrantMode above) and database-backed
+// ?show= links (via the boot path).
+function entrantScreen(){
   $("hostView").classList.add("hide");
   $("entrantView").classList.remove("hide");
 
@@ -2112,13 +2143,18 @@ if(showParam){
       Object.assign(show, rec.show);
       entries   = rec.entries || [];
       published = rec.published || null;
-      // The host opening their own link gets the full workspace; everyone else
-      // gets the read-only entrant view.
-      const isHost = me && me.userId && rec.show.hostId && me.userId===rec.show.hostId;
-      entrantView = !isHost;
       show.ranking = DISCIPLINES[show.discipline]?.ranking || show.ranking || "sum";
-      renderAll(); renderInvite();
-      if(!entrantView) persist();
+      // The host opening their own link gets the full workspace; everyone else
+      // gets the entrant view. ?as=entrant lets the host preview the entrant
+      // side of their own show.
+      const isHost = me && me.userId && rec.show.hostId && me.userId===rec.show.hostId;
+      const preview = new URLSearchParams(location.search).get('as')==='entrant';
+      entrantView = !isHost || preview;
+      if(entrantView){
+        entrantScreen();            // this was missing — entrants used to land on the host page
+      }else{
+        renderAll(); renderInvite(); persist();
+      }
     }else{
       document.body.innerHTML='<div style="font-family:Georgia,serif;color:#f1e6d8;background:#241a14;border:1px solid #c98a3a;border-radius:8px;max-width:560px;margin:60px auto;padding:24px;">'
         +'<h3 style="color:#c98a3a;margin-top:0;">Show not found</h3>'
