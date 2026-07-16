@@ -2056,9 +2056,31 @@ $("au_go").onclick = async e=>{
 };
 $("au_out").onclick = ()=>{ bankSignOut(); refreshAfterAuth(); $("au_msg").textContent=""; };
 
+// All three apps share an origin, so Firebase already remembers you across them —
+// but this page only ever looked at localStorage. If Firebase has a session and we
+// don't, adopt it, so signing in anywhere signs you in everywhere.
+async function adoptSharedSession(){
+  try{
+    if(!window.EquiAuth) return;
+    await window.EquiAuth.ready;
+    if(hostLogin()) return;                 // already signed in here
+    if(!window.EquiAuth.user) return;       // no Firebase session to adopt
+    const token = await window.EquiAuth.token();
+    if(!token) return;
+    const who = await bankCall({action:"getMyAccount", idToken:token});
+    if(who?.success && who.data?.linked){
+      localStorage.setItem("equi-lite-bank", JSON.stringify({
+        userId: who.data.userId, password:"", linked:true }));
+      renderAuth();
+      console.log('[EquiShows] adopted shared session:', who.data.userId);
+    }
+  }catch(e){ console.warn('[EquiShows] session adopt failed:', e); }
+}
+
 const hash = location.hash.startsWith("#s=") ? location.hash.slice(3) : null;
 const showParam = new URLSearchParams(location.search).get('show');
 renderAuth();
+adoptSharedSession();   // picks up a sign-in from the tracker or hub
 if(showParam){
   // Database-backed invite: load the live show by id.
   (async()=>{
