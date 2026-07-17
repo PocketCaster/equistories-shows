@@ -172,6 +172,11 @@
     <div class="small muted mono" id="ev_meta"></div>
     <h2 style="margin:6px 0 4px;font-size:1.4rem" id="ev_title"></h2>
     <div class="muted" id="ev_sub"></div>
+    <div id="ev_classWrap" class="hide" style="margin-top:10px;max-width:340px">
+      <label for="ev_class" class="small">Class you're entering</label>
+      <select id="ev_class"></select>
+      <div class="small muted" style="margin-top:4px">Enter more classes by submitting again — one piece of art per class.</div>
+    </div>
     <div class="note" id="ev_stats"></div>
     <details style="margin-top:14px"><summary>What the judges will score you on</summary>
       <div id="ev_rubric" style="margin-top:10px"></div>
@@ -223,6 +228,13 @@
       <div><label for="f_disc">Discipline</label><select id="f_disc"></select></div>
       <div><label for="f_closes">Entries close</label><input id="f_closes" type="date" value="2026-03-31" /></div>
     </div>
+    <div id="classesWrap" style="margin-top:12px">
+      <div id="classList"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="ghost small" id="cls_add" type="button">＋ Add a class (multi-class show)</button>
+      </div>
+      <div class="note hide" id="classNote"></div>
+    </div>
     <div class="grid" style="margin-top:14px">
       <div><label for="f_src">Stats counted</label>
         <select id="f_src">
@@ -259,14 +271,17 @@
 
     <div id="ribbonWrap" style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
       <label>Placement ribbons <span style="text-transform:none;color:var(--dim)">(optional — image link per place; winners can claim them to their horse's ribbon wall)</span></label>
-      <label class="toggle" style="margin:6px 0 12px"><input type="checkbox" id="rb_gc" />
-        Award <b>Grand Champion</b> to 1st place</label>
-      <div id="rb_gcRow" class="hide" style="margin-bottom:12px">
-        <label for="rb_gcImg" class="small">Grand Champion ribbon image link</label>
-        <input id="rb_gcImg" type="text" placeholder="https://…/grand-champion.png" />
-      </div>
-      <div id="rb_list"></div>
+      <div id="rb_list" style="margin-top:8px"></div>
       <button class="ghost small" id="rb_add" type="button">+ Add a placement</button>
+
+      <label style="display:block;margin-top:18px">Titles &amp; special awards <span style="text-transform:none;color:var(--dim)">(optional — Grand Champion, Reserve, Judge's Choice… <b>you</b> pick each winner at results; any entry can win, not just 1st place)</span></label>
+      <div id="aw_list" style="margin-top:8px"></div>
+      <button class="ghost small" id="aw_add" type="button">+ Add a title</button>
+      <datalist id="awardTitles">
+        <option>Grand Champion</option><option>Reserve Champion</option>
+        <option>Division Champion</option><option>Judge's Choice</option>
+        <option>Best Turned Out</option><option>High Point Champion</option>
+      </datalist>
     </div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
@@ -306,6 +321,7 @@
     <details style="margin-top:14px"><summary>Add a horse directly (for your own entry, or testing)</summary>
       <div class="row" style="margin-top:10px">
         <input id="f_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123&stable=https://script.google.com/…" />
+        <span id="entryClsWrap" class="hide" style="min-width:180px"><select id="f_entryCls" title="Class this horse enters"></select></span>
         <button class="ghost" id="addLink" type="button">Add horse</button>
       </div>
     </details>
@@ -694,6 +710,19 @@ function runRace(show, entries){
 }
 function clock(sec){ const m=Math.floor(sec/60), s=sec-m*60; return m+":"+s.toFixed(3).padStart(6,"0"); }
 function runShow(show, entries){
+  const classes = showClasses(show);
+  if(classes.length > 1){
+    // Each class is ranked on its own — placements, ribbons and prize splits
+    // are per class. Reuses the single-class scorer via a class view.
+    const results = [];
+    for(const cls of classes){
+      const view = classView(cls, show);
+      const sub  = entries.filter(e=> (e.classId||classes[0].id)===cls.id);
+      rankScored(view, sub).forEach(r=> results.push(
+        {...r, classId:cls.id, className:cls.discipline, classRanking:view.ranking}));
+    }
+    return {mode:"scored", multi:true, results};
+  }
   return DISCIPLINES[show.discipline].mode==="timed"
     ? {mode:"timed", seed:raceSeed(show,entries), results:runRace(show,entries)}
     : {mode:"scored", results:rankScored(show,entries)};
@@ -738,8 +767,12 @@ function encodeShow(show){
     s:show.statSource, l:show.statCeil, r:show.raceType, b:show.blind ? 1 : 0,
     p:show.preset, m:(show.mailbox && show.mailbox !== DEFAULT_MAILBOX) ? show.mailbox : undefined,
     z: (show.prize && prizeCommitted(show)>0) ? { s:show.prize.splits } : undefined,
-    rb: (show.ribbons && (show.ribbons.grandChampion || (show.ribbons.tiers||[]).length))
-        ? { g:show.ribbons.grandChampion||"", t:show.ribbons.tiers||[] } : undefined,
+    rb: (show.ribbons && (show.ribbons.tiers||[]).length)
+        ? { t:show.ribbons.tiers||[] } : undefined,
+    aw: (show.awards||[]).length
+        ? show.awards.map(a=>({id:a.id, t:a.title, i:a.image||""})) : undefined,
+    cls: multiClass(show)
+        ? showClasses(show).map(c=>({id:c.id, d:c.discipline})) : undefined,
     st: show.status==="closed" ? 1 : undefined,
     x: RUBRIC_PRESETS[show.preset] === show.criteria ? undefined : show.criteria,
   });
@@ -755,10 +788,16 @@ function decodeShow(code){
     mailbox: d.m || DEFAULT_MAILBOX,
     prize: d.z ? { splits:d.z.s||[] }
               : { splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
-    ribbons: d.rb ? { grandChampion:d.rb.g||"", tiers:d.rb.t||[] } : { grandChampion:"", tiers:[] },
+    ribbons: d.rb ? { tiers:d.rb.t||[] } : { tiers:[] },
+    awards: (d.aw||[]).map(a=>({ id:a.id||("aw_"+Math.random().toString(36).slice(2,8)),
+                                 title:a.t||"Award", image:a.i||"" })),
+    classes: d.cls ? d.cls.map(c=>({id:c.id, discipline:c.d})) : undefined,
     status: d.st===1 ? "closed" : "open",
     judges:[{id:"j_host", name:"Host", owns:[]}],
   };
+  // Legacy invites carried a Grand-Champion image tied to 1st place.
+  if(d.rb && d.rb.g) show.ribbons.grandChampion = d.rb.g;
+  normalizeShow(show);
   show.ranking = DISCIPLINES[show.discipline]?.ranking || "sum";
   return show;
 }
@@ -769,13 +808,14 @@ function statsFingerprint(stats, discipline){
   return cyrb53(keys.map(k=> k+":"+(stats[k]||0)).join("|"));
 }
 
-function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, bankId, seenStats}){
+function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, bankId, seenStats, classId}){
   return b64encode({
     v:1, s:show.id, h:horseId, u:stable,
     a:artUrl||"", w:litUrl||"", c:Number(litWords)||0,
     g:bankId||"",
     t:new Date().toISOString(),
     k: seenStats ? statsFingerprint(seenStats, show.discipline) : null,
+    cl: classId||undefined,
   });
 }
 function decodeEntry(code, show){
@@ -783,7 +823,8 @@ function decodeEntry(code, show){
   if(d.v !== 1) throw new Error("This entry code was made by a different version of Shows.");
   if(show && d.s !== show.id) throw new Error("That code is for a different show.");
   return {showId:d.s, horseId:d.h, stable:d.u, artUrl:d.a, litUrl:d.w,
-          litWords:d.c, bankId:d.g||"", submittedAt:d.t, seenFingerprint:d.k};
+          litWords:d.c, bankId:d.g||"", submittedAt:d.t, seenFingerprint:d.k,
+          classId:d.cl||null};
 }
 
 // Did the horse change between entering and judging?
@@ -799,16 +840,18 @@ function entryTampered(entry, decoded, show){
    — never here. These functions touch no network and no secrets.
 ------------------------------------------------------- */
 
-// Total buxx the host has assigned across placements.
+// Total buxx the host has assigned across placements — PER CLASS.
 function prizeCommitted(show){
   return (show.prize?.splits || []).reduce((n,s)=> n + (Number(s.amount)||0), 0);
 }
+// What escrow actually needs to hold: the splits apply to every class.
+function prizeTotal(show){ return prizeCommitted(show) * showClasses(show).length; }
 
 // Turn ranked results into a payout list. Ties split the pooled tiers they span,
 // matching the standard-competition ranking rankScored already produces
 // (two tied for 1st occupy places 1 and 2, so they split prize[1]+prize[2]; the
 // next entry is 3rd and gets prize[3]).
-function resolvePayouts(show, results){
+function resolvePayoutsSingle(show, results){
   const tier = {};
   (show.prize?.splits || []).forEach(s=>{ if(Number(s.amount)>0) tier[s.place] = Number(s.amount); });
 
@@ -824,43 +867,73 @@ function resolvePayouts(show, results){
     const each = Math.round((pot/group.length)*100)/100;
     group.forEach(r=> payouts.push({
       userId: r.ownerBankId || r.bankId || null, name: r.name, placement: p, amount: each,
+      className: r.className || "",
     }));
   }
   return payouts;
 }
+// Multi-class shows pay the splits in every class; placements repeat per class,
+// so payouts have to be resolved class by class.
+function resolvePayouts(show, results){
+  const groups = {};
+  results.forEach(r=> (groups[r.classId||"_"] ||= []).push(r));
+  const out = [];
+  for(const k of Object.keys(groups)) out.push(...resolvePayoutsSingle(show, groups[k]));
+  return out;
+}
 
 function payoutTotal(payouts){ return payouts.reduce((n,p)=> n + p.amount, 0); }
 
-// Placement label: 1->"1st Place", handles 11th/12th/13th, and Grand Champion.
-function placeLabel(n, ribbons){
-  if(ribbons && ribbons.grandChampion && n===1) return "Grand Champion";
+// Placement label: 1->"1st Place", handles 11th/12th/13th.
+function placeLabel(n){
   const s=["th","st","nd","rd"], v=n%100;
   return n + (s[(v-20)%10] || s[v] || s[0]) + " Place";
 }
 
 // One ribbon record per placed horse, shaped to drop straight into a horse's
 // compHistory so the existing ribbon wall renders it unchanged. Only places the
-// host defined a ribbon (or prize/label) for produce a record.
+// host defined a ribbon for produce a record. In a multi-class show, placements
+// repeat per class, so each class hands out its own set.
 function resolveRibbons(show, results, meta){
-  const ribbons = show.ribbons || {tiers:[]};
   const byPlace = {};
-  (ribbons.tiers||[]).forEach(t=>{ if(t && t.place) byPlace[t.place]=t; });
-  const gc = ribbons.grandChampion || "";
+  ((show.ribbons && show.ribbons.tiers)||[]).forEach(t=>{ if(t && t.place) byPlace[t.place]=t; });
   const out = [];
   for(const r of results){
     const tier = byPlace[r.placement];
-    const isGC = gc && r.placement===1;
-    if(!tier && !isGC) continue;
-    const img = isGC ? gc : (tier ? tier.image : "");
+    if(!tier) continue;
     out.push({
       placement: r.placement,
-      label: placeLabel(r.placement, ribbons),
-      customLabel: tier && tier.label ? tier.label : "",
-      image: img || "",
+      label: placeLabel(r.placement),
+      customLabel: tier.label || "",
+      image: tier.image || "",
       name: r.name, horseId: r.id, bankId: r.ownerBankId || r.bankId || null,
-      discipline: (meta&&meta.discipline)||show.discipline,
+      className: r.className || "",
+      discipline: r.className || (meta&&meta.discipline) || show.discipline,
       venue: (meta&&meta.title)||show.title||"",
       date: (meta&&meta.date)||new Date().toISOString().slice(0,10),
+    });
+  }
+  return out;
+}
+
+// Titles & special awards: the host hand-picks each winner after publishing
+// (published.awards = {awardId: horseId}). Any entry can win — Grand Champion
+// is whoever the host says it is, not automatically the 1st-place horse.
+function resolveAwards(show, published){
+  const out = [];
+  if(!published || !published.results) return out;
+  for(const a of (show.awards||[])){
+    const hid = (published.awards||{})[a.id];
+    if(!hid) continue;
+    const r = published.results.find(x=>x.id===hid);
+    if(!r) continue;
+    out.push({
+      placement: r.placement, label: "Special award", customLabel: a.title||"Award",
+      image: a.image||"", name: r.name, horseId: r.id,
+      bankId: r.ownerBankId || r.bankId || null,
+      className: r.className || "",
+      discipline: r.className || show.discipline,
+      venue: show.title||"", date: new Date().toISOString().slice(0,10),
     });
   }
   return out;
@@ -889,6 +962,52 @@ function trainingEvidence(horse, stats){
    STATE
    ============================================================ */
 
+/* ---------------- classes & normalization ----------------
+   A show can host several judged classes (e.g. Dressage + Show Jumping +
+   Cross Country). Internally that's show.classes = [{id, discipline}].
+   When absent, the show is single-class and show.discipline rules, exactly
+   as before — every scoring function below takes a `show` object, so a
+   per-class run just uses a view of the show with that class's discipline.
+---------------------------------------------------------- */
+function showClasses(s){
+  s = s || show;
+  return (Array.isArray(s.classes) && s.classes.length)
+    ? s.classes : [{id:"c_main", discipline:s.discipline}];
+}
+function multiClass(s){ return showClasses(s).length > 1; }
+function classOf(entry, s){
+  const cls = showClasses(s);
+  return cls.find(c=>c.id===entry.classId) || cls[0];
+}
+// A view of the show as one class sees it — safe to hand to any scorer.
+function classView(cls, s){
+  s = s || show;
+  if(cls.discipline===s.discipline) return s;
+  return {...s, discipline:cls.discipline, ranking:DISCIPLINES[cls.discipline].ranking||"sum"};
+}
+function entryView(entry, s){ return classView(classOf(entry, s), s); }
+
+// Bring any stored/decoded show up to the current shape. Legacy shows had
+// ribbons.grandChampion (an image auto-awarded to 1st) — that becomes a
+// host-assigned award, because Grand Champion isn't always the 1st-place horse.
+function normalizeShow(s){
+  if(!s.ribbons) s.ribbons = {tiers:[]};
+  if(!Array.isArray(s.awards)) s.awards = [];
+  if(s.ribbons.grandChampion !== undefined){
+    const gc = String(s.ribbons.grandChampion||"").trim();
+    if(gc && !s.awards.some(a=>a.title==="Grand Champion"))
+      s.awards.push({id:"aw_gc_legacy", title:"Grand Champion", image:gc});
+    delete s.ribbons.grandChampion;
+  }
+  if(Array.isArray(s.classes)){
+    s.classes = s.classes.filter(c=> c && c.discipline && DISCIPLINES[c.discipline]
+                                     && DISCIPLINES[c.discipline].mode!=="timed");
+    if(s.classes.length) s.discipline = s.classes[0].discipline;
+    else delete s.classes;
+  }
+  return s;
+}
+
 function freshShow(){
   return {
     id:"show_"+Math.random().toString(36).slice(2,9),
@@ -898,7 +1017,8 @@ function freshShow(){
     blind:true, preset:"Brief-weighted (recommended)",
     mailbox:DEFAULT_MAILBOX,
     prize:{ splits:[{place:1,amount:0},{place:2,amount:0},{place:3,amount:0}] },
-    ribbons:{ grandChampion:"", tiers:[] }, // tiers: [{place, label, image}]
+    ribbons:{ tiers:[] }, // tiers: [{place, label, image}]
+    awards:[],            // [{id, title, image}] — winners hand-picked at results
     status:"open",
     criteria: ART_RUBRIC,
     ranking:"sum",
@@ -982,6 +1102,7 @@ function restore(id){
   const rec = loadStore().shows[id];
   if(!rec) return false;
   Object.assign(show, rec.show);
+  normalizeShow(show);
   // Re-link preset criteria by reference (JSON round-trip broke it) so the invite
   // link can still tell "unchanged preset" from "custom" and stay short.
   if(show.preset in RUBRIC_PRESETS &&
@@ -1097,7 +1218,9 @@ function renderSetup(){
   $("statNote").className="note"+(show.statSource==="effective"?" warn":"");
   $("statNote").innerHTML = show.statSource==="effective"
     ? `<b>Tack counts.</b> A +1 bit of tack lifts an untrained 10 to an 11 — worth 5 points a stat. Only turn this on if you mean it.`
-    : `Scored on <span class="mono">${stats.join(" · ")}</span> from <b>base stats only</b>. Tack is shown, never counted. Training past ${show.statCeil} adds nothing here.`;
+    : `Scored on ${multiClass()
+        ? showClasses().map(c=>`<b>${esc(c.discipline)}</b>: <span class="mono">${DISCIPLINES[c.discipline].stats.join(" · ")}</span>`).join(" — ")
+        : `<span class="mono">${stats.join(" · ")}</span>`} from <b>base stats only</b>. Tack is shown, never counted. Training past ${show.statCeil} adds nothing here.`;
 
   $("blindNote").className = "note" + (show.blind ? " good" : " warn");
   $("blindNote").innerHTML = timed ? "" : (show.blind
@@ -1108,8 +1231,8 @@ function renderSetup(){
 
 function critMax(){ return show.criteria.reduce((n,c)=>n+c.max,0); }
 
-function statLine(e){
-  return DISCIPLINES[show.discipline].stats.map(s=>{
+function statLine(e, disc){
+  return DISCIPLINES[disc||show.discipline].stats.map(s=>{
     const b=e.baseStats[s]||0, t=e.tackBonus[s]||0;
     return `${s} <span class="v">${b}</span>${t?`<span class="bonus">(+${t})</span>`:""}`;
   }).join("  ");
@@ -1117,19 +1240,30 @@ function statLine(e){
 
 function renderEntries(){
   $("entryCount").textContent = entries.length + " entered";
+  // Direct-add class select (only relevant in a multi-class show)
+  const cw=$("entryClsWrap");
+  if(cw){
+    cw.classList.toggle("hide", !multiClass());
+    if(multiClass()){
+      const cur=$("f_entryCls").value;
+      $("f_entryCls").innerHTML = showClasses().map(c=>
+        `<option value="${esc(c.id)}" ${c.id===cur?"selected":""}>${esc(c.discipline)}</option>`).join("");
+    }
+  }
   if(!entries.length){ $("entries").innerHTML=`<div class="empty">No entries yet. Paste a horse link above, or load a demo field.</div>`; return; }
-  const stats=DISCIPLINES[show.discipline].stats;
   $("entries").innerHTML = entries.map(e=>{
+    const view=entryView(e);
+    const stats=DISCIPLINES[view.discipline].stats;
     const ev=trainingEvidence(e,stats);
     return `<div class="entry">
       <div class="row" style="align-items:flex-start">
         <div style="flex:1;min-width:200px">
           <div class="name">${esc(e.name)}</div>
-          <div class="meta">${esc(e.breed)}${e.breed?" · ":""}Level ${e.level}</div>
-          <div class="statline">${statLine(e)}</div>
+          <div class="meta">${esc(e.breed)}${e.breed?" · ":""}Level ${e.level}${multiClass()?` · <span style="color:var(--amber)">${esc(classOf(e).discipline)}</span>`:""}</div>
+          <div class="statline">${statLine(e, view.discipline)}</div>
           ${e.tampered?`<div class="small" style="color:var(--amber);margin-top:6px">⚠ Stats changed after this entry was submitted.</div>`:""}
         </div>
-        <div class="pts"><b>${statScore(e,show)}</b><div class="small muted">of ${stats.length*10} stat pts</div>
+        <div class="pts"><b>${statScore(e,view)}</b><div class="small muted">of ${stats.length*10} stat pts</div>
           <button class="ghost danger small" data-rm="${esc(e.id)}" type="button" style="margin-top:8px">Withdraw</button></div>
       </div>
       <div class="grid" style="margin-top:10px">
@@ -1196,11 +1330,12 @@ function renderJudgeStep(){
         <div class="small muted">${esc(j.name)} declared a conflict on this entry — it will be scored by the others.</div></div>
       </div></div>`;
 
+    const clsTag = multiClass() ? ` · <span style="color:var(--amber)">${esc(classOf(e).discipline)}</span>` : "";
     const head = show.blind
       ? `<span class="blindno">${String(e.blindNo).padStart(2,"0")}</span>
-         <div style="flex:1"><div class="name">Entry ${String(e.blindNo).padStart(2,"0")}</div>
-           <div class="small muted">Artist and horse withheld until results are published.</div></div>`
-      : `<div style="flex:1"><div class="name">${esc(e.name)}</div><div class="statline">${statLine(e)}</div></div>`;
+         <div style="flex:1"><div class="name">Entry ${String(e.blindNo).padStart(2,"0")}${clsTag}</div>
+           <div class="small muted">Artist and horse withheld until results are published.${multiClass()?" The class is shown — judges need it to score discipline accuracy.":""}</div></div>`
+      : `<div style="flex:1"><div class="name">${esc(e.name)}${clsTag}</div><div class="statline">${statLine(e, entryView(e).discipline)}</div></div>`;
 
     // Under blind judging the image is embedded, never linked: a url like
     // deviantart.com/<artist>/… would identify the entrant on hover.
@@ -1249,11 +1384,18 @@ function renderResults(){
   const {mode,results,seed}=published;
   const best=results[0];
 
+  let lastCls=null;
   const rows = results.map(e=>{
+    let head="";
+    if(published.multi && e.classId!==lastCls){
+      lastCls=e.classId;
+      head=`<div class="finish" style="grid-template-columns:1fr;background:none"><div><b>${esc(e.className)}</b></div></div>`;
+    }
+    const rank = e.classRanking || show.ranking;
     const win = e.placement===1;
     const right = mode==="timed"
       ? `<div class="clock">${clock(e.finalSec)}</div><div class="delta">${win?"—":"+"+(e.finalSec-best.finalSec).toFixed(3)}</div>`
-      : `<div class="clock">${show.ranking==="percent"?e.total.toFixed(3)+"%":e.total}</div><div class="delta">${e.statScore} stat · ${e.judged} art</div>`;
+      : `<div class="clock">${rank==="percent"?e.total.toFixed(3)+"%":e.total}</div><div class="delta">${e.statScore} stat · ${e.judged} art</div>`;
 
     let sub = "";
     if(mode==="scored"){
@@ -1262,7 +1404,7 @@ function renderResults(){
       sub = `<div class="breakdown">${parts} &nbsp;—&nbsp; median of ${cov.scored} judge${cov.scored===1?"":"s"}${cov.eligible<show.judges.length?" (conflict excluded)":""}</div>`;
     }
 
-    return `<div class="finish ${win?"win":""}">
+    return head + `<div class="finish ${win?"win":""}">
       <div class="place">${e.placement}</div>
       <div><div class="name">${esc(e.name)}</div>
         <div class="small muted">${mode==="timed"?"−"+e.bonus.toFixed(1)+"s from stats":esc(e.breed)}</div></div>
@@ -1279,15 +1421,16 @@ function renderResults(){
         Fixed the moment entries closed. Re-run it as often as you like — it lands the same way.
       </div>`
     : `<div class="verify">
-        <b>total</b> stat points + art points${show.ranking==="percent"?", as a percentage of everything available":""}<br>
+        ${published.multi?`<b>classes</b> ${showClasses().map(c=>esc(c.discipline)).join(" · ")} — each class is ranked on its own; placements, ribbons and prizes are per class<br>`:""}
+        <b>total</b> stat points + art points${(!published.multi && show.ranking==="percent")?", as a percentage of everything available":""}<br>
         <b>art</b> ${critMax()} available · craft worth ${show.criteria.find(c=>c.key==="craft")?.max ?? 0}<br>
         <b>panel</b> ${show.judges.map(j=>esc(j.name)).join(", ")} · each criterion is the median, not the mean<br>
         <b>judged</b> ${show.blind?"blind — names revealed only now":"names were visible to judges"}<br>
         Stats came from each horse's training log. Judges scored only the art.
       </div>`;
 
-  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel();
-  bindPayout(); bindRibbonClaim();
+  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel() + awardsPanel();
+  bindPayout(); bindRibbonClaim(); bindAwards();
 }
 
 function ribbonClaimCode(rib){
@@ -1305,7 +1448,7 @@ function ribbonPanel(){
     const code=ribbonClaimCode(rib);
     return `<div class="finish" style="grid-template-columns:72px 1fr;align-items:center">
       <div class="artview" style="max-width:64px">${rib.image?`<img src="${esc(rib.image)}" alt="${esc(rib.label)}" loading="lazy" referrerpolicy="no-referrer" />`:`<div class="empty" style="padding:14px">no img</div>`}</div>
-      <div><div class="name">${esc(rib.name)} — ${esc(rib.customLabel||rib.label)}</div>
+      <div><div class="name">${esc(rib.name)} — ${esc(rib.customLabel||rib.label)}${rib.className&&published.multi?` <span class="small muted">· ${esc(rib.className)}</span>`:""}</div>
         <div class="row" style="margin-top:6px;gap:8px">
           <input type="text" readonly value="${esc(code)}" class="mono" style="flex:1;min-width:200px;font-size:.72rem" />
           <button class="ghost small" data-ribcopy="${esc(code)}" type="button">Copy claim code</button>
@@ -1317,6 +1460,55 @@ function ribbonPanel(){
     ${rows}
     <div class="verify">Winners paste their code into the main EquiStories app (Claim a show ribbon) to hang it on their horse. The shows app can't write to a horse it doesn't own.</div>
   </div>`;
+}
+
+// Titles & special awards — the host picks each winner from the published field.
+function awardsPanel(){
+  if(!published || !(show.awards||[]).length) return "";
+  const multi = !!published.multi;
+  const rows = show.awards.map(a=>{
+    const cur = (published.awards||{})[a.id] || "";
+    const opts = [`<option value="">— pick the winner —</option>`]
+      .concat(published.results.map(r=>
+        `<option value="${esc(r.id)}" ${r.id===cur?"selected":""}>${r.placement}. ${esc(r.name)}${multi?" — "+esc(r.className):""}</option>`))
+      .join("");
+    const win = cur ? published.results.find(r=>r.id===cur) : null;
+    let claim = "";
+    if(win){
+      const rib = resolveAwards(show, published).find(x=>x.horseId===win.id && x.customLabel===(a.title||"Award"));
+      if(rib){
+        const code = ribbonClaimCode(rib);
+        claim = `<div class="row" style="margin-top:6px;gap:8px">
+          <input type="text" readonly value="${esc(code)}" class="mono" style="flex:1;min-width:200px;font-size:.72rem" />
+          <button class="ghost small" data-ribcopy="${esc(code)}" type="button">Copy claim code</button></div>`;
+      }
+    }
+    return `<div class="finish" style="grid-template-columns:72px 1fr;align-items:center">
+      <div class="artview" style="max-width:64px">${a.image?`<img src="${esc(a.image)}" alt="${esc(a.title||"award")}" loading="lazy" referrerpolicy="no-referrer" />`:`<div class="empty" style="padding:14px">no img</div>`}</div>
+      <div><div class="name">${esc(a.title||"Untitled award")}</div>
+        <div class="row" style="margin-top:6px;gap:8px">
+          <select data-award="${esc(a.id)}" style="flex:1;min-width:200px">${opts}</select>
+        </div>
+        ${claim}</div>
+    </div>`;
+  }).join("");
+  return `<div class="strip" style="margin-top:16px">
+    <div class="finish" style="grid-template-columns:1fr;background:none"><div><b>Titles &amp; special awards</b> · you choose each winner — any entry can take a title, not just 1st place</div></div>
+    ${rows}
+    <div class="verify">Assignments save with the show. Each winner pastes their claim code into the main EquiStories app to hang the title on their horse's ribbon wall.</div>
+  </div>`;
+}
+function bindAwards(){
+  document.querySelectorAll("[data-award]").forEach(sel=>{
+    sel.onchange = e=>{
+      if(!published) return;
+      published.awards = published.awards || {};
+      const id = e.target.dataset.award;
+      if(e.target.value) published.awards[id] = e.target.value;
+      else delete published.awards[id];
+      persist(); renderResults();
+    };
+  });
 }
 
 function bindRibbonClaim(){
@@ -1336,7 +1528,7 @@ function payoutPanel(){
   const released = show.prize._released===true;
   const rows = pays.map(p=>`<div class="finish" style="grid-template-columns:56px 1fr auto">
       <div class="place">${p.placement}</div>
-      <div><div class="name">${esc(p.name)}</div>
+      <div><div class="name">${esc(p.name)}${p.className&&published.multi?` <span class="small muted">· ${esc(p.className)}</span>`:""}</div>
         <div class="small muted">${p.userId ? "→ "+esc(p.userId) : "no bank id found — pay by hand"}</div></div>
       <div class="clock">฿${p.amount}</div>
     </div>`).join("");
@@ -1357,7 +1549,7 @@ function payoutPanel(){
        <div class="verify"><b>note</b> released from escrow as <b>${esc(login.userId)}</b> using your existing sign-in — no password entry. Unspent buxx returns to you.</div>`;
   }
   return `<div class="strip" style="margin-top:16px">
-    <div class="finish" style="grid-template-columns:1fr;background:none"><div><b>Prize payout</b> · ฿${total} of ฿${prizeCommitted(show)} held</div></div>
+    <div class="finish" style="grid-template-columns:1fr;background:none"><div><b>Prize payout</b> · ฿${total} of ฿${prizeTotal(show)} held</div></div>
     ${rows}${action}</div>`;
 }
 
@@ -1386,7 +1578,7 @@ function bindPayout(){
   };
 }
 
-const renderAll = ()=>{ renderSetup(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); renderRibbons(); };
+const renderAll = ()=>{ renderSetup(); renderClasses(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); renderRibbons(); };
 const invalidate = ()=>{ published=null; persistSoon(); };
 
 /* ============================================================
@@ -1403,6 +1595,10 @@ $("f_preset").onchange= e => { show.preset=e.target.value; show.criteria=RUBRIC_
 $("f_disc").onchange  = e => {
   show.discipline=e.target.value;
   show.ranking=DISCIPLINES[show.discipline].ranking||"sum";
+  if(Array.isArray(show.classes) && show.classes.length){
+    if(DISCIPLINES[show.discipline].mode==="timed") delete show.classes; // races run alone
+    else show.classes[0].discipline = show.discipline;
+  }
   invalidate(); renderAll();
 };
 
@@ -1469,11 +1665,13 @@ function notify(msg,kind="note"){ $("fetchNote").innerHTML=`<div class="note ${k
 $("addLink").onclick = async ()=>{
   const p=parseHorseLink($("f_link").value);
   if(!p){ notify("That doesn't look like a horse link. Copy the shareable link from the horse's profile page — it needs both the horse and stable parts.","bad"); return; }
-  if(entries.some(e=>e.id===p.horse)){ notify("That horse is already entered.","warn"); return; }
+  const cid = multiClass() ? ($("f_entryCls").value||showClasses()[0].id) : showClasses()[0].id;
+  if(entries.some(e=>e.id===p.horse && (e.classId||showClasses()[0].id)===cid)){ notify(multiClass()?"That horse is already entered in this class.":"That horse is already entered.","warn"); return; }
   notify("Fetching the horse…");
   const res=await stableGas({action:"loadPublicHorse",horseId:p.horse}, p.stable);
   if(!res?.success || !res.data){ notify(res?.error||"That stable didn't return the horse.","bad"); return; }
-  entries.push(snapshot(res.data));
+  const snap=snapshot(res.data); snap.classId=cid;
+  entries.push(snap);
   invalidate(); $("f_link").value="";
   notify(`${res.data.name} entered. Stats frozen as of now.`,"good");
   renderAll();
@@ -1499,6 +1697,8 @@ $("demo").onclick = ()=>{
     mk("h_dun","Dunhollow","Thoroughbred",17,false),
     mk("h_eir","Eiravale","Irish Draught",12,false),
   ];
+  const demoCls = showClasses();
+  entries.forEach((e,i)=> e.classId = demoCls[i % demoCls.length].id);
   invalidate();
   notify("Demo field loaded. Bramblewick is untrained but wearing +1 tack — flip “Stats counted” to see what that buys him.","good");
   renderAll();
@@ -1710,13 +1910,15 @@ function renderPrize(){
   $("pz_2").value = show.prize.splits[1]?.amount||0;
   $("pz_3").value = show.prize.splits[2]?.amount||0;
   const committed = prizeCommitted(show);
+  const total = prizeTotal(show);
   const held = show.prize._held===true;
   const login = hostLogin();
   const btn=$("pz_hold"), note=$("pz_note"), st=$("pz_status");
 
-  btn.textContent = held ? "Held ✓" : `Hold ฿${committed} from my bank`;
+  btn.textContent = held ? "Held ✓" : `Hold ฿${total} from my bank`;
   btn.disabled = held || committed<=0 || !login;
-  st.innerHTML = held ? `<span style="color:var(--moss)">฿${committed} in escrow — released to winners at results</span>` : "";
+  st.innerHTML = held ? `<span style="color:var(--moss)">฿${total} in escrow — released to winners at results</span>` : "";
+  const perClass = multiClass() ? ` The splits pay out in <b>every class</b> (฿${committed} × ${showClasses().length} classes = ฿${total}).` : "";
 
   if(committed<=0){ note.className="note"; note.innerHTML="Set per-place amounts to attach a prize."; return; }
   if(!login){
@@ -1726,12 +1928,12 @@ function renderPrize(){
   }
   note.className="note";
   note.innerHTML = held
-    ? `Winners are paid from escrow when you publish. Anything unspent returns to you automatically.`
-    : `Signed in as <b>${esc(login.userId)}</b>. Holding moves ฿${committed} from your account into escrow until results — entrants can see the prize is real, and you can't accidentally spend it.`;
+    ? `Winners are paid from escrow when you publish. Anything unspent returns to you automatically.${perClass}`
+    : `Signed in as <b>${esc(login.userId)}</b>. Holding moves ฿${total} from your account into escrow until results — entrants can see the prize is real, and you can't accidentally spend it.${perClass}`;
 }
 
 async function holdShow(){
-  const committed=prizeCommitted(show);
+  const committed=prizeTotal(show);
   const st=$("pz_status");
   if(committed<=0) return;
   st.textContent="Holding…";
@@ -1757,10 +1959,7 @@ bindPrizeInputs();
 
 function renderRibbons(){
   const w=$("rb_list"); if(!w) return;
-  if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
-  $("rb_gc").checked = !!show.ribbons.grandChampion;
-  $("rb_gcRow").classList.toggle("hide", !show.ribbons.grandChampion);
-  $("rb_gcImg").value = show.ribbons.grandChampion||"";
+  if(!show.ribbons) show.ribbons={tiers:[]};
   const tiers = show.ribbons.tiers||[];
   w.innerHTML = tiers.length ? tiers.map((t,i)=>`
     <div class="entry" style="margin-bottom:8px">
@@ -1770,29 +1969,53 @@ function renderRibbons(){
         <div><label class="small">Ribbon image link</label><input type="text" value="${esc(t.image||"")}" placeholder="https://…/ribbon.png" data-rb="image" data-i="${i}" /></div>
         <button class="ghost danger small" data-rbdel="${i}" type="button">Remove</button>
       </div>
-      ${t.image?`<div class="artview" style="margin-top:8px;max-width:120px"><img src="${esc(t.image)}" alt="${esc(placeLabel(t.place,show.ribbons))} ribbon" loading="lazy" referrerpolicy="no-referrer" /></div>`:""}
-    </div>`).join("") : `<div class="small muted" style="margin-bottom:8px">No placement ribbons yet.</div>`;
+      ${t.image?`<div class="artview" style="margin-top:8px;max-width:120px"><img src="${esc(t.image)}" alt="${esc(placeLabel(t.place))} ribbon" loading="lazy" referrerpolicy="no-referrer" /></div>`:""}
+    </div>`).join("") : `<div class="small muted" style="margin-bottom:8px">No placement ribbons yet.${multiClass()?" In a multi-class show each class hands out its own set.":""}</div>`;
+
+  const aw=$("aw_list"); if(!aw) return;
+  const awards = show.awards||[];
+  aw.innerHTML = awards.length ? awards.map((a,i)=>`
+    <div class="entry" style="margin-bottom:8px">
+      <div class="grid" style="grid-template-columns:1fr 1fr auto;align-items:end;gap:10px">
+        <div><label class="small">Title</label><input type="text" list="awardTitles" value="${esc(a.title||"")}" placeholder="e.g. Grand Champion" data-aw="title" data-i="${i}" /></div>
+        <div><label class="small">Ribbon image link (optional)</label><input type="text" value="${esc(a.image||"")}" placeholder="https://…/ribbon.png" data-aw="image" data-i="${i}" /></div>
+        <button class="ghost danger small" data-awdel="${i}" type="button">Remove</button>
+      </div>
+      ${a.image?`<div class="artview" style="margin-top:8px;max-width:120px"><img src="${esc(a.image)}" alt="${esc(a.title||"award")} ribbon" loading="lazy" referrerpolicy="no-referrer" /></div>`:""}
+    </div>`).join("") : `<div class="small muted" style="margin-bottom:8px">No titles yet. You hand-pick each winner at results — Grand Champion doesn't have to be the 1st-place horse.</div>`;
 }
 
 function bindRibbons(){
   const add=$("rb_add");
   if(add) add.onclick=()=>{
-    if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
+    if(!show.ribbons) show.ribbons={tiers:[]};
     const used=(show.ribbons.tiers||[]).map(t=>t.place);
     let p=1; while(used.includes(p)) p++;
     show.ribbons.tiers.push({place:p,label:"",image:""});
     show.ribbons.tiers.sort((a,b)=>a.place-b.place);
     invalidate(); renderInvite(); renderRibbons();
   };
-  const gc=$("rb_gc");
-  if(gc) gc.onchange=e=>{
-    if(!show.ribbons) show.ribbons={grandChampion:"",tiers:[]};
-    if(!e.target.checked) show.ribbons.grandChampion="";
-    else if(!show.ribbons.grandChampion) show.ribbons.grandChampion=" "; // placeholder until a link is typed
+
+  const awAdd=$("aw_add");
+  if(awAdd) awAdd.onclick=()=>{
+    show.awards = show.awards||[];
+    show.awards.push({id:"aw_"+Math.random().toString(36).slice(2,8), title:"", image:""});
     invalidate(); renderInvite(); renderRibbons();
   };
-  const gci=$("rb_gcImg");
-  if(gci) gci.oninput=e=>{ show.ribbons.grandChampion=e.target.value.trim(); invalidate(); renderInvite(); };
+  const awList=$("aw_list");
+  if(awList){
+    awList.addEventListener("input", e=>{
+      const f=e.target.dataset.aw, i=e.target.dataset.i;
+      if(f===undefined||i===undefined) return;
+      show.awards[i][f]=e.target.value.trim();
+      invalidate(); renderInvite();
+      if(f==="image") renderRibbons();
+    });
+    awList.addEventListener("click", e=>{
+      const i=e.target.dataset.awdel; if(i===undefined) return;
+      show.awards.splice(i,1); invalidate(); renderInvite(); renderRibbons();
+    });
+  }
 
   const list=$("rb_list");
   if(list){
@@ -1812,6 +2035,54 @@ function bindRibbons(){
 }
 bindRibbons();
 
+// ---- multi-class setup ----
+function renderClasses(){
+  const list=$("classList"), note=$("classNote"), add=$("cls_add");
+  if(!list || !add) return;
+  const timedNow = DISCIPLINES[show.discipline]?.mode==="timed";
+  add.classList.toggle("hide", timedNow);
+  add.textContent = multiClass() ? "＋ Add another class" : "＋ Add a class (multi-class show)";
+  note.classList.toggle("hide", !timedNow);
+  if(timedNow) note.innerHTML = "Timed races run alone — multi-class shows are for judged classes only.";
+  const cls = show.classes||[];
+  if(cls.length<2){ list.innerHTML=""; return; }
+  const scored = Object.keys(DISCIPLINES).filter(d=>DISCIPLINES[d].mode!=="timed");
+  list.innerHTML = cls.slice(1).map((c,i)=>`
+    <div class="row" style="margin-top:8px;align-items:flex-end">
+      <div style="flex:1;min-width:200px"><label class="small">Class ${i+2} discipline</label>
+        <select data-cls="${i+1}">${scored.map(d=>`<option ${d===c.discipline?"selected":""}>${esc(d)}</option>`).join("")}</select></div>
+      <button class="ghost danger small" data-clsdel="${i+1}" type="button">Remove</button>
+    </div>`).join("")
+    + `<div class="note" style="margin-top:10px">Multi-class show: entrants pick a class when they enter (one entry per class, separate art).
+       The dropdown above is <b>Class 1</b>. Placements, ribbons and prize splits apply <b>per class</b>.</div>`;
+}
+function bindClasses(){
+  const add=$("cls_add"); if(!add) return;
+  add.onclick=()=>{
+    if(DISCIPLINES[show.discipline]?.mode==="timed") return;
+    if(!Array.isArray(show.classes) || !show.classes.length)
+      show.classes=[{id:"c_main", discipline:show.discipline}];
+    const scored=Object.keys(DISCIPLINES).filter(d=>DISCIPLINES[d].mode!=="timed");
+    const used=show.classes.map(c=>c.discipline);
+    const next=scored.find(d=>!used.includes(d))||scored[0];
+    show.classes.push({id:"c_"+Math.random().toString(36).slice(2,8), discipline:next});
+    invalidate(); renderAll();
+  };
+  const list=$("classList"); if(!list) return;
+  list.addEventListener("change", e=>{
+    const i=e.target.dataset.cls; if(i===undefined) return;
+    show.classes[Number(i)].discipline=e.target.value;
+    invalidate(); renderAll();
+  });
+  list.addEventListener("click", e=>{
+    const i=e.target.dataset.clsdel; if(i===undefined) return;
+    show.classes.splice(Number(i),1);
+    if(show.classes.length<2) delete show.classes;
+    invalidate(); renderAll();
+  });
+}
+bindClasses();
+
 function codeNote(msg, kind="note"){ $("codeNote").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
 
 // Accept one entry code. Fetches stats from the horse's own stable, flags tampering,
@@ -1820,15 +2091,19 @@ async function acceptCode(raw, {silent}={}){
   let dec;
   try{ dec = decodeEntry(raw, show); }
   catch(err){ return {ok:false, msg:err.message}; }
-  if(entries.some(e=>e.id===dec.horseId)) return {ok:false, dup:true, msg:"Already entered."};
+  const classes=showClasses();
+  const cid = (dec.classId && classes.some(c=>c.id===dec.classId)) ? dec.classId : classes[0].id;
+  if(entries.some(e=>e.id===dec.horseId && (e.classId||classes[0].id)===cid))
+    return {ok:false, dup:true, msg: multiClass()?"Already entered in this class.":"Already entered."};
 
   const res = await stableGas({action:"loadPublicHorse", horseId:dec.horseId}, dec.stable);
   if(!res?.success || !res.data) return {ok:false, msg:res?.error||"That stable didn't return the horse."};
 
   const snap = snapshot(res.data);
+  snap.classId=cid;
   snap.artUrl=dec.artUrl; snap.litUrl=dec.litUrl; snap.litWords=dec.litWords; snap.bankId=dec.bankId||"";
   snap.submittedAt=dec.submittedAt;
-  snap.tampered = entryTampered(snap, dec, show);
+  snap.tampered = entryTampered(snap, dec, entryView(snap));
   snap.late = show.closesAt && new Date(dec.submittedAt) > new Date(show.closesAt+"T23:59:59");
   entries.push(snap);
   invalidate();
@@ -1921,21 +2196,42 @@ function entrantScreen(){
     return;
   }
 
+  // Multi-class: the entrant picks a class; everything below (stats, meta,
+  // fingerprint) follows the picked class. Entrant view never persists the
+  // show, so steering show.discipline here is safe.
+  const classes = showClasses();
+  if(!window.__evClassId || !classes.some(c=>c.id===window.__evClassId)) window.__evClassId = classes[0].id;
+  const evCls = classes.find(c=>c.id===window.__evClassId);
+  show.discipline = evCls.discipline;
+  show.ranking = DISCIPLINES[evCls.discipline].ranking || "sum";
+  const cw=$("ev_classWrap");
+  if(cw){
+    cw.classList.toggle("hide", classes.length<2);
+    if(classes.length>1){
+      $("ev_class").innerHTML = classes.map(c=>
+        `<option value="${esc(c.id)}" ${c.id===window.__evClassId?"selected":""}>${esc(c.discipline)}</option>`).join("");
+      $("ev_class").onchange = e=>{ window.__evClassId=e.target.value; entrantScreen(); };
+    }
+  }
+
   const stats = DISCIPLINES[show.discipline].stats;
   const timed = isTimed();
-  $("ev_meta").textContent = `${show.discipline.toUpperCase()} · ENTRIES CLOSE ${show.closesAt}`;
+  $("ev_meta").textContent = (classes.length>1 ? `MULTI-CLASS SHOW · ENTERING: ` : ``) + `${show.discipline.toUpperCase()} · ENTRIES CLOSE ${show.closesAt}`;
   $("ev_title").textContent = show.title || "A show";
   $("ev_sub").textContent = timed
     ? `${show.raceType} — run on a seeded clock. Lowest time wins.`
     : (show.blind ? "Judged blind. The judges won't know it's yours." : "Judged with names visible.");
 
   const committed = prizeCommitted(show);
+  const oldPd = document.getElementById("ev_prizeNote");
+  if(oldPd) oldPd.remove();
   if(committed>0){
     $("ev_prizeRow").classList.remove("hide");
     const parts = show.prize.splits.filter(s=>s.amount>0).map(s=>`${ordinal(s.place)} ฿${s.amount}`).join(" · ");
     const pd=document.createElement("div");
+    pd.id="ev_prizeNote";
     pd.className="note good"; pd.style.marginTop="10px";
-    pd.innerHTML=`<b>Prize pool ฿${committed}</b> — ${esc(parts)}. ${hostLogin()?`Signed in — prizes reach <b>${esc(hostLogin().userId)}</b>.`:`Sign in above so a prize can reach you.`}`;
+    pd.innerHTML=`<b>Prize pool ฿${committed}${classes.length>1?" per class":""}</b> — ${esc(parts)}. ${hostLogin()?`Signed in — prizes reach <b>${esc(hostLogin().userId)}</b>.`:`Sign in above so a prize can reach you.`}`;
     $("ev_sub").after(pd);
   }
   refreshEntrantAuth();
@@ -2007,6 +2303,7 @@ $("ev_gen").onclick = ()=>{
     litUrl:$("ev_lit").value.trim(), litWords:Number($("ev_wc").value)||0,
     bankId:hostLogin().userId,   // always the verified signed-in id now
     seenStats:evHorse.baseStats,
+    classId: multiClass() ? window.__evClassId : undefined,
   });
 
   const canSubmit = show.mailbox && isAppsScript(show.mailbox);
@@ -2142,6 +2439,7 @@ if(showParam){
     if(rec && rec.show){
       const me = hostLogin();
       Object.assign(show, rec.show);
+      normalizeShow(show);
       entries   = rec.entries || [];
       published = rec.published || null;
       show.ranking = DISCIPLINES[show.discipline]?.ranking || show.ranking || "sum";
