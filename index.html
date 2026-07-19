@@ -217,6 +217,8 @@
   <select id="showPicker" style="width:auto;min-width:200px;flex:1"></select>
   <button class="ghost small" id="newShow" type="button">New show</button>
   <button class="ghost small danger" id="delShow" type="button">Delete</button>
+  <button class="small" id="publishShow" type="button" title="Put this show on the public board (or update it there)">Publish / update</button>
+  <button class="ghost small" id="unpublishShow" type="button" title="Remove this show from the public board">Unpublish</button>
   <span class="small muted" id="saveStatus" style="width:100%;text-align:right"></span>
 </div>
 <!-- 01 -->
@@ -1080,6 +1082,13 @@ async function fsLoadShow(showId){
   try{ return await DB.get('shows', showId); }
   catch(e){ console.error('[EquiDB] loadShow failed:', e); return null; }
 }
+// Take a show OFF the public board (deletes the shared copy; your local copy stays).
+async function fsRemoveShow(showId){
+  if(!fsEnabled()) return false;
+  const DB = await waitForDB(); if(!DB || !DB.remove) return false;
+  try{ await DB.remove('shows', showId); return true; }
+  catch(e){ console.error('[EquiDB] removeShow failed:', e); return false; }
+}
 
 let saveTimer=null;
 function persistSoon(){ if(entrantView) return; clearTimeout(saveTimer); saveTimer=setTimeout(persist, 400); }
@@ -1094,7 +1103,10 @@ function persist(){
   };
   store.currentId = show.id;
   const ok = saveStore(store);
-  fsSaveShow();   // fire-and-forget: also persist to the shared database
+  // NOTE: we deliberately do NOT write to the shared database here. Local
+  // autosave keeps your workspace safe, but a show only appears on the public
+  // board when you click "Publish / update" (or copy its invite link). This is
+  // what stops every page visit from spawning a blank show for everyone.
   renderShowBar(ok);
 }
 
@@ -1124,7 +1136,8 @@ function newShow(){
 }
 
 function deleteShow(){
-  if(!confirm("Delete this show and its entries from this browser? The invite link will stop matching.")) return;
+  if(!confirm("Delete this show and its entries from this browser? This also removes it from the public board. The invite link will stop matching.")) return;
+  fsRemoveShow(show.id);   // also pull it off the shared board (safe if it was never published)
   const store=loadStore();
   delete store.shows[show.id];
   const ids=Object.keys(store.shows).sort((a,b)=>(store.shows[b].savedAt||0)-(store.shows[a].savedAt||0));
@@ -1903,6 +1916,36 @@ $("copyInvite").onclick = async e => {
 $("showPicker").onchange = e => { persist(); if(restore(e.target.value)){ renderAll(); renderInvite(); } };
 $("newShow").onclick = newShow;
 $("delShow").onclick = deleteShow;
+
+// Publish / update: the ONLY host action (besides copying the invite link) that
+// puts a show on the shared public board. Nothing reaches the board on page load.
+$("publishShow").onclick = async e => {
+  const btn = e.target;
+  const st = $("saveStatus");
+  if(!hostLogin()){
+    if(st) st.textContent = "Sign in on the main site first — publishing puts the show on the board under your name.";
+    return;
+  }
+  if(!show.title || !show.title.trim()){
+    if(st) st.textContent = "Give the show a name before publishing.";
+    return;
+  }
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Publishing…";
+  const ok = await fsSaveShow();
+  btn.disabled = false; btn.textContent = old;
+  if(st) st.textContent = ok ? "Published to the board ✓" : "Couldn't publish — check your connection (F12 for details).";
+};
+
+// Unpublish: pull it back off the board. Local copy is untouched.
+$("unpublishShow").onclick = async e => {
+  const st = $("saveStatus");
+  if(!confirm("Remove this show from the public board? Your local copy stays, and any invite link will show ‘Show not found’ until you publish again.")) return;
+  const btn = e.target;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Removing…";
+  const ok = await fsRemoveShow(show.id);
+  btn.disabled = false; btn.textContent = old;
+  if(st) st.textContent = ok ? "Removed from the board." : "Couldn't remove it — check your connection.";
+};
 
 function renderPrize(){
   const w=$("prizeWrap"); if(!w) return;
