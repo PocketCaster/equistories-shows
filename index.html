@@ -1602,9 +1602,27 @@ function renderResults(){
 
     let sub = "";
     if(mode==="scored"){
-      const cov=judgeCoverage(e, show.judges);
-      const parts = show.criteria.map(c=>`${c.label.split(" ")[0].toLowerCase()} <b>${criterionScore(e,c,show.judges)}</b>`).join(" · ");
-      sub = `<div class="breakdown">${parts} &nbsp;—&nbsp; median of ${cov.scored} judge${cov.scored===1?"":"s"}${cov.eligible<show.judges.length?" (conflict excluded)":""}</div>`;
+      const rowView = {...show, discipline: e.className || show.discipline};
+      const bits = [];
+      // Stat side: show each discipline stat, its value, and the tier points it
+      // earned — the stat "rubric" and how it was met. Only when stats are scored.
+      if(usesStats(show)){
+        const src   = statsFor(e, rowView);
+        const tiers = rowView.statTiers || DEFAULT_TIERS;
+        const stats = DISCIPLINES[rowView.discipline].stats;
+        const parts = stats.map(s=>{
+          const v = src[s]||0;
+          return `${s.toLowerCase()} ${v} → <b>${statTierPoints(v,tiers)}</b>`;
+        }).join(" · ");
+        bits.push(`<div class="breakdown"><b>stats</b> · ${parts} &nbsp;—&nbsp; ${e.statScore} of ${stats.length*10} pts</div>`);
+      }
+      // Art side: the judged criteria, medianed across the panel. Only when judged.
+      if(usesJudges(show)){
+        const cov   = judgeCoverage(e, show.judges);
+        const parts = show.criteria.map(c=>`${c.label.split(" ")[0].toLowerCase()} <b>${criterionScore(e,c,show.judges)}</b>`).join(" · ");
+        bits.push(`<div class="breakdown"><b>art</b> · ${parts} &nbsp;—&nbsp; median of ${cov.scored} judge${cov.scored===1?"":"s"}${cov.eligible<show.judges.length?" (conflict excluded)":""}</div>`);
+      }
+      sub = bits.join("");
     }
 
     return head + `<div class="finish ${win?"win":""}">
@@ -1623,14 +1641,31 @@ function renderResults(){
         <b>bonus</b> (${DISCIPLINES[show.discipline].stats.join(" + ")}) × 0.2, each capped at ${show.statCeil}<br>
         Fixed the moment entries closed. Re-run it as often as you like — it lands the same way.
       </div>`
-    : `<div class="verify">
+    : (()=>{
+        const usesS=usesStats(show), usesJ=usesJudges(show);
+        const tiers=show.statTiers||DEFAULT_TIERS;
+        const tierLegend=tiers.filter(t=>t.pts>0).map(t=>`${t.min}+ → ${t.pts}`).join(" · ");
+        const totalDesc = mode==="random" ? "a random draw"
+                        : usesS && usesJ ? "stat points + art points"
+                        : usesS ? "stat points"
+                        : "art points";
+        const closing = mode==="random"
+              ? "Placings were drawn at random — stats and art were ignored."
+              : usesS && usesJ
+              ? "Stats came from each horse's training log; judges scored only the art."
+              : usesS
+              ? "Placings are the horses' stats in this discipline — no artwork, no judging panel."
+              : "Placings are the judges' scores of the artwork.";
+        return `<div class="verify">
         ${published.multi?`<b>classes</b> ${showClasses().map(c=>esc(c.discipline)).join(" · ")} — each class is ranked on its own; placements, ribbons and prizes are per class<br>`:""}
-        <b>total</b> stat points + art points${(!published.multi && show.ranking==="percent")?", as a percentage of everything available":""}<br>
-        <b>art</b> ${critMax()} available · craft worth ${show.criteria.find(c=>c.key==="craft")?.max ?? 0}<br>
-        <b>panel</b> ${show.judges.map(j=>esc(j.name)).join(", ")} · each criterion is the median, not the mean<br>
-        <b>judged</b> ${show.blind?"blind — names revealed only now":"names were visible to judges"}<br>
-        Stats came from each horse's training log. Judges scored only the art.
+        <b>total</b> ${totalDesc}${(mode!=="random" && !published.multi && show.ranking==="percent")?", as a percentage of everything available":""}<br>
+        ${usesS?`<b>stats</b> each discipline stat scored on tiers ${tierLegend} — up to 10 per stat<br>`:""}
+        ${usesJ?`<b>art</b> ${critMax()} available · craft worth ${show.criteria.find(c=>c.key==="craft")?.max ?? 0}<br>`:""}
+        ${usesJ?`<b>panel</b> ${show.judges.map(j=>esc(j.name)).join(", ")} · each criterion is the median, not the mean<br>`:""}
+        ${usesJ?`<b>judged</b> ${show.blind?"blind — names revealed only now":"names were visible to judges"}<br>`:""}
+        ${closing}
       </div>`;
+      })();
 
   box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel() + awardsPanel();
   bindPayout(); bindRibbonClaim(); bindAwards();
