@@ -260,7 +260,9 @@
           <option value="base">Base — training only</option>
           <option value="effective">Effective — tack counts</option>
         </select></div>
-      <div><label for="f_ceil">Stat ceiling</label><input id="f_ceil" type="number" value="20" min="10" /></div>
+      <div><label for="f_ceil">Peak stat — competition level</label>
+        <input id="f_ceil" type="number" value="20" min="10" />
+        <div id="f_levels" class="row" style="gap:4px;margin-top:5px;flex-wrap:wrap"></div></div>
       <div id="raceWrap" class="hide"><label for="f_race">Distance</label><select id="f_race"></select></div>
       <div id="presetWrap"><label for="f_preset">Art rubric</label><select id="f_preset"></select></div>
     </div>
@@ -547,6 +549,34 @@ const RACE_TYPES = {
   "1.25 Miles":[110,20], "1.5 Miles":[130,20], "Steeplechase":[140,20],
 };
 const DEFAULT_TIERS = [{min:20,pts:10},{min:15,pts:8},{min:11,pts:5},{min:0,pts:0}];
+
+// Stat-based shows judge each discipline stat on a ladder that tops out at 10
+// points. The ladder is now CALIBRATED to the show's peak (show.statCeil): the
+// peak earns full marks, and the bands scale down from there. This is what lets
+// a high-tier show test high-stat horses — at Entry (peak 20) a stat of 20 maxes
+// out, but at an Elite peak of 100 you need ~100 to max and a 55 only earns 5,
+// so a field of 100+ horses actually spreads out instead of all tying at 10.
+// The top three bands at peak 20 match the old fixed ladder exactly (20/15/11 →
+// 10/8/5); extra low bands just add partial credit that used to be a flat 0.
+function statLadder(peak){
+  peak = Math.max(10, Math.round(Number(peak)||20));
+  const b = (frac,pts)=>({ min: Math.max(1, Math.round(peak*frac)), pts });
+  return [ b(1,10), b(0.75,8), b(0.55,5), b(0.40,3), b(0.25,2), b(0.12,1), {min:0,pts:0} ];
+}
+// The ladder a given show scores on: an explicit show.statTiers wins (custom
+// ladders), otherwise it's generated from the peak.
+function showTiers(show){
+  if(show && Array.isArray(show.statTiers) && show.statTiers.length) return show.statTiers;
+  return statLadder((show && show.statCeil) ?? 20);
+}
+// Preset competition levels — quick buttons that just set the peak.
+const STAT_LEVELS = [
+  { key:"entry",  label:"Entry",        peak:20  },
+  { key:"novice", label:"Novice",       peak:40  },
+  { key:"adv",    label:"Advanced",     peak:70  },
+  { key:"elite",  label:"Elite",        peak:100 },
+  { key:"champ",  label:"Championship", peak:150 },
+];
 const DEFAULT_MAILBOX = "https://script.google.com/macros/s/AKfycbxJDhhM0OaHB8-BvHuGLs0XByWnYIiuMLqzRkAVo50TBg4sfazthu25QdoqwCBKUSFM/exec";
 // The Buxx Bank /exec url — the SAME BANK_URL the main EquiStories app uses for
 // loginPlayer and all money actions (NOT the stable/horse-data url). The escrow
@@ -726,7 +756,7 @@ const statsFor = (e,show)=> show.statSource==="effective" ? e.effectiveStats : e
 function statTierPoints(v, tiers=DEFAULT_TIERS){ for(const t of tiers){ if(v>=t.min) return t.pts; } return 0; }
 function statScore(entry, show){
   const src = statsFor(entry, show);
-  return DISCIPLINES[show.discipline].stats.reduce((n,s)=> n + statTierPoints(src[s]||0, show.statTiers||DEFAULT_TIERS), 0);
+  return DISCIPLINES[show.discipline].stats.reduce((n,s)=> n + statTierPoints(src[s]||0, showTiers(show)), 0);
 }
 
 function median(list){
@@ -1436,6 +1466,20 @@ function renderSetup(){
   if(srcWrap) srcWrap.classList.toggle("hide", !rules.stats);
   const ceilWrap=$("f_ceil") && $("f_ceil").closest("div");
   if(ceilWrap) ceilWrap.classList.toggle("hide", !rules.stats);
+  // Quick competition-level presets — each just sets the peak (statCeil), which
+  // rescales the whole stat ladder.
+  const lvHost=$("f_levels");
+  if(lvHost){
+    if(rules.stats){
+      lvHost.innerHTML = STAT_LEVELS.map(l=>{
+        const active=Number(show.statCeil)===l.peak;
+        return `<button type="button" class="ghost small" data-level="${l.peak}" style="font-size:.72rem;padding:2px 8px;${active?'border-color:var(--amber);color:var(--amber)':''}">${esc(l.label)} · ${l.peak}</button>`;
+      }).join("");
+      lvHost.querySelectorAll("[data-level]").forEach(b=>{
+        b.onclick=()=>{ show.statCeil=Number(b.dataset.level)||20; invalidate(); renderAll(); };
+      });
+    } else lvHost.innerHTML="";
+  }
   // The mailbox is the DELIVERY channel — every entry arrives through it no
   // matter what the show is judged on. Tying it to the art rubric hid the
   // "Load submitted entries" button on stats-only, speed and luck shows, so
@@ -1450,7 +1494,11 @@ function renderSetup(){
     ? `<b>Tack counts.</b> A +1 bit of tack lifts an untrained 10 to an 11 — worth 5 points a stat. Only turn this on if you mean it.`
     : `Scored on ${multiClass()
         ? showClasses().map(c=>`<b>${esc(c.discipline)}</b>: <span class="mono">${DISCIPLINES[c.discipline].stats.join(" · ")}</span>`).join(" — ")
-        : `<span class="mono">${stats.join(" · ")}</span>`} from <b>base stats only</b>. Tack is shown, never counted. Training past ${show.statCeil} adds nothing here.`;
+        : `<span class="mono">${stats.join(" · ")}</span>`} from <b>base stats only</b>. Tack is shown, never counted.`;
+  if(rules.stats){
+    const lad=showTiers(show).filter(t=>t.pts>0).map(t=>`${t.min}+&rarr;${t.pts}`).join(" · ");
+    $("statNote").innerHTML += `<div class="small" style="margin-top:6px">Peak <b>${show.statCeil}</b> earns full marks per stat. Ladder: <span class="mono">${lad}</span>. Raise the peak for higher-tier shows so strong horses spread out instead of all tying at the top.</div>`;
+  }
 
   $("blindNote").className = "note" + (show.blind ? " good" : " warn");
   $("blindNote").innerHTML = timed ? "" : (show.blind
@@ -1636,7 +1684,7 @@ function renderResults(){
       // earned — the stat "rubric" and how it was met. Only when stats are scored.
       if(usesStats(show)){
         const src   = statsFor(e, rowView);
-        const tiers = rowView.statTiers || DEFAULT_TIERS;
+        const tiers = showTiers(rowView);
         const stats = DISCIPLINES[rowView.discipline].stats;
         const parts = stats.map(s=>{
           const v = src[s]||0;
@@ -1671,7 +1719,7 @@ function renderResults(){
       </div>`
     : (()=>{
         const usesS=usesStats(show), usesJ=usesJudges(show);
-        const tiers=show.statTiers||DEFAULT_TIERS;
+        const tiers=showTiers(show);
         const tierLegend=tiers.filter(t=>t.pts>0).map(t=>`${t.min}+ → ${t.pts}`).join(" · ");
         const totalDesc = mode==="random" ? "a random draw"
                         : usesS && usesJ ? "stat points + art points"
