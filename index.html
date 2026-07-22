@@ -1034,6 +1034,34 @@ function resolveAwards(show, published){
   return out;
 }
 
+// A stable, deterministic record id for a given horse in a given show/class, so
+// re-claiming the same show (e.g. after it's re-published or re-judged) collapses
+// onto the same compHistory record instead of stacking duplicates.
+function compRecordId(show, r){
+  return "show_" + (show.id||"s") + "_" + (r.id||"h") + (r.classId?("_"+r.classId):"");
+}
+
+// Convert ANY entrant result (placed, unplaced, or participation-only) into the
+// compHistory record the main app stores. Ribbon winners still get the richer
+// ribbon record below; this is the baseline every entrant qualifies for so that
+// participation and non-podium placements are logged too.
+function entryToCompRecord(show, r){
+  const placed = r.placement>=1;
+  return {
+    id: compRecordId(show, r),
+    discipline: r.className || show.discipline,
+    difficulty: placed ? placeLabel(r.placement) : "Participant",
+    venue: show.title || "",
+    date: new Date().toISOString().slice(0,10),
+    placement: placed ? r.placement : null,
+    note: placed ? "" : "Entered — no placement",
+    image: null, link: null, prizes: [],
+  };
+}
+function entryClaimCode(show, r){
+  return b64encode({ v:1, horseId: r.id, rec: entryToCompRecord(show, r) });
+}
+
 // Convert a ribbon into the exact compHistory record the main app stores.
 function ribbonToCompRecord(rib){
   return {
@@ -1667,7 +1695,7 @@ function renderResults(){
       </div>`;
       })();
 
-  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel() + awardsPanel();
+  box.innerHTML=`<div class="strip">${rows}${verify}</div>` + payoutPanel() + ribbonPanel() + awardsPanel() + entriesLogPanel();
   bindPayout(); bindRibbonClaim(); bindAwards();
 }
 
@@ -1742,6 +1770,32 @@ function awardsPanel(){
     <div class="verify">Assignments save with the show. Each winner pastes their claim code into the main EquiStories app to hang the title on their horse's ribbon wall.</div>
   </div>`;
 }
+// Entry log — a claim code for EVERY entrant, whatever they placed (including
+// participation with no placement). Ribbon winners already get a richer coded
+// ribbon above; this guarantees the plain "I was in this show" record reaches
+// every horse's competition history, which the ribbon-only codes never did.
+function entriesLogPanel(){
+  if(!published || !published.results || !published.results.length) return "";
+  const multi = !!published.multi;
+  const rows = published.results.map(r=>{
+    const code = entryClaimCode(show, r);
+    const place = r.placement>=1 ? placeLabel(r.placement) : "Participant";
+    return `<div class="finish" style="grid-template-columns:auto 1fr;align-items:center;gap:10px">
+      <div class="place" style="min-width:34px">${r.placement>=1?r.placement:"—"}</div>
+      <div><div class="name">${esc(r.name)} <span class="small muted">· ${esc(place)}${multi&&r.className?" · "+esc(r.className):""}</span></div>
+        <div class="row" style="margin-top:6px;gap:8px">
+          <input type="text" readonly value="${esc(code)}" class="mono" style="flex:1;min-width:200px;font-size:.72rem" />
+          <button class="ghost small" data-ribcopy="${esc(code)}" type="button">Copy claim code</button>
+        </div></div>
+    </div>`;
+  }).join("");
+  return `<div class="strip" style="margin-top:16px">
+    <div class="finish" style="grid-template-columns:1fr;background:none"><div><b>Entry log</b> · a claim code for every horse that entered — placed or not — so the show reaches their competition history</div></div>
+    ${rows}
+    <div class="verify">Each entrant pastes their code into the main EquiStories app (Claim a show ribbon) to record the show on their horse. Non-podium and participation entries log as records without a ribbon image; re-claiming the same show won't create a duplicate.</div>
+  </div>`;
+}
+
 function bindAwards(){
   document.querySelectorAll("[data-award]").forEach(sel=>{
     sel.onchange = e=>{
