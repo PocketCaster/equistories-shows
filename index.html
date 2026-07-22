@@ -211,6 +211,7 @@
       </div>
       <div id="ev_expTotal" class="note" style="margin-top:10px"></div>
     </div>
+    <div id="ev_artNote" style="margin-top:8px"></div>
     <div id="ev_prizeRow" class="hide" style="margin-top:14px">
       <div class="note good" id="ev_whoami"></div>
     </div>
@@ -2588,14 +2589,18 @@ function entrantScreen(){
           : `<div class="bands">${c.bands.map(b=>`<div class="band"><span class="p">${b.pts}</span><span class="l">${esc(b.label)}</span><span class="d">${esc(b.desc)}</span></div>`).join("")}</div>`}
       </div>`).join("");
 
-  // Show the art fields when the show is actually judged on art. This used to
-  // key off "timed" alone, so a stats-only or luck show still asked entrants
-  // for artwork that could never be scored.
+  // Art is always OFFERED, because it's how an entrant earns EXP for the piece
+  // — even in a luck or stats class where it can't affect the placing. It's only
+  // REQUIRED when the show is actually judged on it. Hiding it here meant a
+  // pure-luck show demanded art with nowhere to put it.
   const evRules=judgingRules(show);
-  const artGrid=$("ev_art").closest(".grid");
-  if(artGrid) artGrid.classList.toggle("hide", !evRules.art);
-  const expBlk=$("ev_expBlock");
-  if(expBlk) expBlk.classList.toggle("hide", !evRules.art);
+  const artLabel=document.querySelector('label[for="ev_art"]');
+  if(artLabel) artLabel.innerHTML = evRules.art
+    ? '2 · Art link — direct image url'
+    : '2 · Art link — direct image url <span style="text-transform:none;color:var(--dim)">(optional — doesn\'t affect placing, but earns EXP)</span>';
+  const artNote=$("ev_artNote");
+  if(artNote) artNote.innerHTML = evRules.art ? ""
+    : `<div class="note">This class is decided by ${esc(JUDGING_MODES[judgingOf(show)].label.toLowerCase())}, so artwork won't change where you place. Add a piece anyway if you'd like the EXP for it.</div>`;
 }
 
 $("ev_check").onclick = async ()=>{
@@ -2677,7 +2682,9 @@ $("ev_gen").onclick = ()=>{
   if(!hostLogin()){ out.innerHTML=`<div class="note bad">Sign in at the top before entering — your entry is tied to your bank login, and it's how prizes and ribbons reach you.</div>`; $("au_user")?.focus(); return; }
   if(!evHorse){ out.innerHTML=`<div class="note bad">Check your horse first — we need its stats before you can enter.</div>`; return; }
   const art=$("ev_art").value.trim();
-  if(!isTimed() && !art){ out.innerHTML=`<div class="note warn">This show is judged on art. Add your art link before generating a code.</div>`; return; }
+  if(judgingRules(show).art && !art){
+    out.innerHTML=`<div class="note warn">This show is judged on art. Add your art link before generating a code.</div>`; return;
+  }
 
   const declared = entryArtExp(document);
   const code = encodeEntry(show, {
@@ -2865,7 +2872,7 @@ if(showParam){
 }
 </script>
 <div id="buildStamp" style="position:fixed;bottom:6px;right:8px;z-index:99999;font:11px/1.4 ui-monospace,monospace;color:#7a6a58;background:rgba(20,14,10,.85);border:1px solid #3a2e22;border-radius:4px;padding:3px 7px;pointer-events:none;">
-  build 2026-07-22-d
+  build 2026-07-22-e
 </div>
 </body>
 </html>
