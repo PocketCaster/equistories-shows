@@ -199,6 +199,18 @@
       <div><label for="ev_wc">Word count</label>
         <input id="ev_wc" type="number" min="0" value="0" /></div>
     </div>
+
+    <div id="ev_expBlock" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+      <label>3 · What's on your sheet? <span style="text-transform:none;color:var(--dim)">(so it can be logged for EXP)</span></label>
+      <div class="note">One row per kind of image — a fullbody, a halfbody and two headshots each count at their own rate. This doesn't affect your placing; it's what your piece is worth in your tracker.</div>
+      <div id="ev_artrows" style="margin-top:6px"></div>
+      <button type="button" class="ghost small" id="ev_add_art" style="margin-top:6px">+ Add another image type</button>
+      <div style="margin-top:10px">
+        <label class="small">Bonus elements</label>
+        <div class="row" id="ev_bonuses" style="gap:12px;flex-wrap:wrap;margin-top:4px"></div>
+      </div>
+      <div id="ev_expTotal" class="note" style="margin-top:10px"></div>
+    </div>
     <div id="ev_prizeRow" class="hide" style="margin-top:14px">
       <div class="note good" id="ev_whoami"></div>
     </div>
@@ -987,6 +999,7 @@ function resolveRibbons(show, results, meta){
       image: tier.image || "",
       name: r.name, horseId: r.id, bankId: r.ownerBankId || r.bankId || null,
       expBonus: expBonusFor(show, r.placement),
+      artExp: Number(r.artExp)||0, artLabel: r.artLabel||"",
       expBonusNote: (expBonusesOf(show).find(b=>Number(b.place)===Number(r.placement))||{}).note || "",
       className: r.className || "",
       discipline: r.className || (meta&&meta.discipline) || show.discipline,
@@ -1263,6 +1276,53 @@ function stableGas(payload, url){
     document.head.appendChild(s);
   });
 }
+// ── Art EXP, mirrored from the stable manager ──────────────────────────────
+// An entrant declares what's actually on their sheet so the piece can be logged
+// for EXP in their tracker. One sheet can hold several kinds of image — a
+// fullbody, a halfbody and two headshots — and each counts at its own rate,
+// which a single "art type" dropdown could never express.
+// KEEP THESE NUMBERS IN STEP WITH ART_EXP / BONUS_EXP IN THE STABLE MANAGER.
+const ART_EXP = {
+  "Uncolored Headshot":1, "Colored Headshot":2,
+  "Uncolored Halfbody":2, "Colored Halfbody":3,
+  "Uncolored Fullbody":3, "Colored Fullbody":4,
+};
+const BONUS_EXP = {
+  "Background":3, "Shading":3, "Rider/Handler shown":4, "Additional Creature (per)":2,
+  "Simple Animation":2, "Complex Animation":5,
+};
+function artRowHTML(selected, n, removable){
+  return `<div data-artrow class="row" style="gap:6px;align-items:center;margin-top:4px">
+    <select data-art-type style="flex:1">
+      <option value="">— select image type —</option>
+      ${Object.keys(ART_EXP).map(k=>`<option value="${k}"${selected===k?' selected':''}>${k} (+${ART_EXP[k]} EXP)</option>`).join("")}
+    </select>
+    <input type="number" data-art-n min="1" value="${n||1}" title="How many of this kind" style="max-width:74px" />
+    ${removable?`<button type="button" data-art-remove class="ghost small">✕</button>`:'<span style="width:28px"></span>'}
+  </div>`;
+}
+function readArtRows(root){
+  return [...root.querySelectorAll('[data-artrow]')].map(r=>({
+    art:(r.querySelector('[data-art-type]')||{}).value||"",
+    n:Math.max(1, parseInt((r.querySelector('[data-art-n]')||{}).value)||1),
+  })).filter(x=>x.art);
+}
+function artRowsExp(rows){ return rows.reduce((t,r)=>t+(ART_EXP[r.art]||0)*r.n, 0); }
+function artRowsImages(rows){ return rows.reduce((t,r)=>t+r.n, 0); }
+function artRowsLabel(rows){ return rows.map(r=>r.n>1?`${r.art} ×${r.n}`:r.art).join(" + "); }
+function readArtBonuses(root){
+  return [...root.querySelectorAll('[data-artbonus]:checked')].map(c=>c.value);
+}
+function artBonusExp(list){ return (list||[]).reduce((t,b)=>t+(BONUS_EXP[b]||0), 0); }
+// What this piece is worth in the entrant's tracker.
+function entryArtExp(root){
+  const rows=readArtRows(root), bonuses=readArtBonuses(root);
+  return { rows, bonuses,
+           exp: artRowsExp(rows)+artBonusExp(bonuses),
+           images: artRowsImages(rows),
+           label: artRowsLabel(rows) };
+}
+
 function parseHorseLink(link){
   let u; try{ u=new URL(link.trim()); }catch{ return null; }
   const horse=u.searchParams.get("horse"), stable=u.searchParams.get("stable");
@@ -1587,6 +1647,9 @@ function ribbonPanel(){
     return `<div class="finish" style="grid-template-columns:72px 1fr;align-items:center">
       <div class="artview" style="max-width:64px">${rib.image?`<img src="${esc(rib.image)}" alt="${esc(rib.label)}" loading="lazy" referrerpolicy="no-referrer" />`:`<div class="empty" style="padding:14px">no img</div>`}</div>
       <div><div class="name">${esc(rib.name)} — ${esc(rib.customLabel||rib.label)}${rib.className&&published.multi?` <span class="small muted">· ${esc(rib.className)}</span>`:""}</div>
+        ${rib.artExp>0?`<div class="small" style="color:#9bd18a;margin-top:4px">
+          Art worth +${rib.artExp} EXP${rib.artLabel?` — ${esc(rib.artLabel)}`:""}
+          <span class="muted">· log it in your tracker's show log</span></div>`:""}
         ${rib.expBonus>0?`<div class="small" style="color:var(--amber);margin-top:4px">
           +${rib.expBonus} EXP bonus${rib.expBonusNote?` — ${esc(rib.expBonusNote)}`:""}
           <span class="muted">· log it in your tracker under “Event / Placement EXP Bonus”</span></div>`:""}
@@ -2544,6 +2607,46 @@ $("ev_art").addEventListener("blur", ()=>{
     : "";
 });
 
+// ── Entry EXP breakdown wiring ─────────────────────────────────────────────
+function evRenderBonuses(){
+  const w=$("ev_bonuses"); if(!w) return;
+  w.innerHTML=Object.keys(BONUS_EXP).map(b=>
+    `<label class="small" style="cursor:pointer"><input type="checkbox" data-artbonus value="${esc(b)}" /> ${esc(b)} <span class="muted">+${BONUS_EXP[b]}</span></label>`
+  ).join("");
+}
+function evRefreshExp(){
+  const box=$("ev_expTotal"); if(!box) return;
+  const d=entryArtExp(document);
+  if(!d.rows.length){
+    box.className="note";
+    box.innerHTML=`<span class="muted">Pick what's on your sheet to see what it's worth in EXP.</span>`;
+    return;
+  }
+  const parts=d.rows.map(r=>`${esc(r.art)}${r.n>1?` ×${r.n}`:''} (+${(ART_EXP[r.art]||0)*r.n})`)
+    .concat(d.bonuses.map(b=>`${esc(b)} (+${BONUS_EXP[b]||0})`));
+  box.className="note good";
+  box.innerHTML=`<b>This piece is worth +${d.exp} EXP</b> — ${parts.join(" · ")}`
+    + (d.images>1?` <span class="muted">· ${d.images} images on the sheet</span>`:"");
+}
+(function initEvExp(){
+  const rows=$("ev_artrows"); if(!rows) return;
+  rows.innerHTML=artRowHTML("",1,false);
+  evRenderBonuses(); evRefreshExp();
+  const add=$("ev_add_art");
+  if(add) add.onclick=()=>{ rows.insertAdjacentHTML("beforeend", artRowHTML("",1,true)); evRefreshExp(); };
+  const blk=$("ev_expBlock");
+  if(blk){
+    blk.addEventListener("input", evRefreshExp);
+    blk.addEventListener("change", evRefreshExp);
+    blk.addEventListener("click", ev=>{
+      const rm=ev.target.closest && ev.target.closest('[data-art-remove]');
+      if(!rm) return;
+      const row=rm.closest('[data-artrow]'); if(row) row.remove();
+      evRefreshExp();
+    });
+  }
+})();
+
 $("ev_gen").onclick = ()=>{
   const out=$("ev_out");
   if(!hostLogin()){ out.innerHTML=`<div class="note bad">Sign in at the top before entering — your entry is tied to your bank login, and it's how prizes and ribbons reach you.</div>`; $("au_user")?.focus(); return; }
@@ -2551,8 +2654,13 @@ $("ev_gen").onclick = ()=>{
   const art=$("ev_art").value.trim();
   if(!isTimed() && !art){ out.innerHTML=`<div class="note warn">This show is judged on art. Add your art link before generating a code.</div>`; return; }
 
+  const declared = entryArtExp(document);
   const code = encodeEntry(show, {
     horseId:evHorse.id, stable:evHorse.stable, artUrl:art,
+    // What the entrant says is on the sheet, so the piece can be logged for EXP
+    // in their tracker without them retyping it.
+    artMix: declared.rows, artBonuses: declared.bonuses,
+    artExp: declared.exp, artLabel: declared.label,
     litUrl:$("ev_lit").value.trim(), litWords:Number($("ev_wc").value)||0,
     bankId:hostLogin().userId,   // always the verified signed-in id now
     seenStats:evHorse.baseStats,
@@ -2731,5 +2839,8 @@ if(showParam){
   if(show.title && show.title.trim()) persist();
 }
 </script>
+<div id="buildStamp" style="position:fixed;bottom:6px;right:8px;z-index:99999;font:11px/1.4 ui-monospace,monospace;color:#7a6a58;background:rgba(20,14,10,.85);border:1px solid #3a2e22;border-radius:4px;padding:3px 7px;pointer-events:none;">
+  build 2026-07-22-c
+</div>
 </body>
 </html>
