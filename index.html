@@ -2417,7 +2417,10 @@ async function acceptCode(raw, {silent}={}){
   if(entries.some(e=>e.id===dec.horseId && (e.classId||classes[0].id)===cid))
     return {ok:false, dup:true, msg: multiClass()?"Already entered in this class.":"Already entered."};
 
-  const res = await stableGas({action:"loadPublicHorse", horseId:dec.horseId}, dec.stable);
+  // Firestore-first, falling back to the old Sheets stable only if the code still
+  // carries one. Horses now live in the shared collection keyed by id, so most
+  // current codes have stable:null — calling stableGas directly would 404 on "null".
+  const res = await fetchPublicHorse({horse:dec.horseId, stable:dec.stable});
   if(!res?.success || !res.data) return {ok:false, msg:res?.error||"That stable didn't return the horse."};
 
   const snap = snapshot(res.data);
