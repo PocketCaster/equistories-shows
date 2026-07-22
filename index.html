@@ -186,7 +186,7 @@
   <div class="panel">
     <label for="ev_link">1 · Your horse's shareable link</label>
     <div class="row">
-      <input id="ev_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123&stable=https://script.google.com/…" />
+      <input id="ev_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123" />
       <button class="ghost" id="ev_check" type="button">Check my horse</button>
     </div>
     <div id="ev_horse"></div>
@@ -341,7 +341,7 @@
 
     <details style="margin-top:14px"><summary>Add a horse directly (for your own entry, or testing)</summary>
       <div class="row" style="margin-top:10px">
-        <input id="f_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123&stable=https://script.google.com/…" />
+        <input id="f_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123" />
         <span id="entryClsWrap" class="hide" style="min-width:180px"><select id="f_entryCls" title="Class this horse enters"></select></span>
         <button class="ghost" id="addLink" type="button">Add horse</button>
       </div>
@@ -1134,7 +1134,12 @@ function saveStore(s){
 
 // ---------------- Firestore (shared toggle with the stable manager) ----------------
 const FS_FLAG='equi_use_firestore';
-function fsEnabled(){ try{ return localStorage.getItem(FS_FLAG)==='1'; }catch(e){ return false; } }
+// Firestore is the live backend now, so it's ON unless deliberately switched
+// off with ?fs=off. This used to require a localStorage flag that the stable
+// manager stopped setting when it moved to "always Firestore" — which left this
+// app permanently in legacy mode: giant #s= invite links, and horse lookups
+// still going to the retired Google Sheets endpoint.
+function fsEnabled(){ try{ return localStorage.getItem(FS_FLAG)!=='0'; }catch(e){ return true; } }
 async function waitForDB(ms=8000){
   try{
     await Promise.race([ window.__equiDBReady||Promise.resolve(false),
@@ -1261,7 +1266,26 @@ function stableGas(payload, url){
 function parseHorseLink(link){
   let u; try{ u=new URL(link.trim()); }catch{ return null; }
   const horse=u.searchParams.get("horse"), stable=u.searchParams.get("stable");
-  return horse && stable ? {horse,stable} : null;
+  // "stable" was the member's own Sheets web-app URL. Horses now live in one
+  // shared Firestore collection keyed by id, so the manager only emits
+  // ?horse=… — requiring the old parameter rejected every current link.
+  return horse ? {horse, stable: stable||null} : null;
+}
+
+// Fetch a horse for entry: Firestore first, falling back to the old Sheets
+// endpoint only when a link still carries a stable URL.
+async function fetchPublicHorse(p){
+  if(fsEnabled()){
+    const DB=await waitForDB();
+    if(DB && DB.get){
+      try{
+        const h=await DB.get('horses', p.horse);
+        if(h) return {success:true, data:h};
+      }catch(e){ console.warn('[EquiShows] Firestore horse fetch failed:', e && e.message); }
+    }
+  }
+  if(p.stable) return await stableGas({action:"loadPublicHorse", horseId:p.horse}, p.stable);
+  return {success:false, error:"Couldn't find that horse. Check the link is the shareable one from its profile page, and that the horse still exists."};
 }
 function snapshot(h){
   const base={...(h.stats||{})}, bonus={};
@@ -1782,12 +1806,12 @@ function notify(msg,kind="note"){ $("fetchNote").innerHTML=`<div class="note ${k
 
 $("addLink").onclick = async ()=>{
   const p=parseHorseLink($("f_link").value);
-  if(!p){ notify("That doesn't look like a horse link. Copy the shareable link from the horse's profile page — it needs both the horse and stable parts.","bad"); return; }
+  if(!p){ notify("That doesn't look like a horse link. Copy the shareable link from the horse's profile page — it should look like …?horse=h_abc123","bad"); return; }
   const cid = multiClass() ? ($("f_entryCls").value||showClasses()[0].id) : showClasses()[0].id;
   if(entries.some(e=>e.id===p.horse && (e.classId||showClasses()[0].id)===cid)){ notify(multiClass()?"That horse is already entered in this class.":"That horse is already entered.","warn"); return; }
   notify("Fetching the horse…");
-  const res=await stableGas({action:"loadPublicHorse",horseId:p.horse}, p.stable);
-  if(!res?.success || !res.data){ notify(res?.error||"That stable didn't return the horse.","bad"); return; }
+  const res=await fetchPublicHorse(p);
+  if(!res?.success || !res.data){ notify(res?.error||"Couldn't load that horse.","bad"); return; }
   const snap=snapshot(res.data); snap.classId=cid;
   entries.push(snap);
   invalidate(); $("f_link").value="";
@@ -2489,10 +2513,10 @@ function entrantScreen(){
 $("ev_check").onclick = async ()=>{
   const p=parseHorseLink($("ev_link").value);
   const box=$("ev_horse");
-  if(!p){ box.innerHTML=`<div class="note bad">That doesn't look like a horse link. Copy the shareable link from your horse's profile page — it needs both the horse and stable parts.</div>`; return; }
+  if(!p){ box.innerHTML=`<div class="note bad">That doesn't look like a horse link. Copy the shareable link from your horse's profile page — it should look like …?horse=h_abc123</div>`; return; }
   box.innerHTML=`<div class="note">Fetching your horse…</div>`;
-  const res=await stableGas({action:"loadPublicHorse", horseId:p.horse}, p.stable);
-  if(!res?.success || !res.data){ box.innerHTML=`<div class="note bad">${esc(res?.error||"Your stable didn't return that horse.")}</div>`; return; }
+  const res=await fetchPublicHorse(p);
+  if(!res?.success || !res.data){ box.innerHTML=`<div class="note bad">${esc(res?.error||"Couldn't load that horse.")}</div>`; return; }
 
   evHorse = snapshot(res.data);
   evHorse.stable = p.stable;
