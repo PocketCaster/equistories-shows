@@ -226,7 +226,7 @@
   <h2><span class="n">01</span> Set up the show <span class="hint" id="modeTag"></span></h2>
   <div class="panel">
     <div class="grid">
-      <div><label for="f_title">Show name</label><input id="f_title" type="text" value="Frostbound Drag Hunt" /></div>
+      <div><label for="f_title">Show name</label><input id="f_title" type="text" placeholder="e.g. Frostbound Drag Hunt" /></div>
       <div><label for="f_disc">Discipline</label><select id="f_disc"></select></div>
       <div><label for="f_closes">Entries close</label><input id="f_closes" type="date" value="2026-03-31" /></div>
     </div>
@@ -238,7 +238,11 @@
       <div class="note hide" id="classNote"></div>
     </div>
     <div class="grid" style="margin-top:14px">
-      <div><label for="f_src">Stats counted</label>
+      <div style="grid-column:1/-1"><label for="f_judging">How is this show judged?</label>
+        <select id="f_judging"></select>
+        <div class="small muted" id="judgingBlurb" style="margin-top:6px"></div>
+      </div>
+      <div id="srcWrap"><label for="f_src">Stats counted</label>
         <select id="f_src">
           <option value="base">Base — training only</option>
           <option value="effective">Effective — tack counts</option>
@@ -287,12 +291,19 @@
     </div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
-      <label for="f_invite">Invite link — send this to your community</label>
-      <div class="row">
-        <input id="f_invite" type="text" readonly style="flex:1;min-width:240px" />
-        <button class="primary" id="copyInvite" type="button">Copy</button>
+      <div class="note" id="invitePending">
+        <b>No invite link yet.</b> Set the show up how you want it, then press
+        <b>Publish / update</b> above. The link appears here once the show is on the board —
+        before that there'd be nothing for an entrant to open.
       </div>
-      <div class="note" id="inviteNote"></div>
+      <div id="inviteWrap" class="hide">
+        <label for="f_invite">Invite link — send this to your community</label>
+        <div class="row">
+          <input id="f_invite" type="text" readonly style="flex:1;min-width:240px" />
+          <button class="primary" id="copyInvite" type="button">Copy</button>
+        </div>
+        <div class="note" id="inviteNote"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -550,6 +561,49 @@ function blindOrder(show, entries){
     .map(({e},i)=>({...e, blindNo:i+1}));
 }
 
+// ── Judging basis ──────────────────────────────────────────────────────────
+// What actually decides placings. Previously this was implied by the
+// discipline: everything was stats+art, except Racing and Steeplechase which
+// were locked to a timed RNG run. Now the host chooses, and the discipline only
+// decides WHICH stats apply — so an art-judged race is possible, as is a
+// stats-only hunter class.
+const JUDGING_MODES = {
+  art_stats: {
+    label:"Art + stats",
+    blurb:"Judges score the artwork against the rubric, and the horse's stats add points on top. The all-round default.",
+    art:true,  stats:true,  judged:true,  random:false,
+  },
+  art: {
+    label:"Art only",
+    blurb:"Placings come purely from the judges' rubric scores. Stats are recorded on the entry but count for nothing — a green horse and a champion start level.",
+    art:true,  stats:false, judged:true,  random:false,
+  },
+  stats: {
+    label:"Stats only",
+    blurb:"No artwork, no judging panel. Placings are the horse's stats in this discipline. Results are final the moment entries close.",
+    art:false, stats:true,  judged:false, random:false,
+  },
+  timed: {
+    label:"Speed class — clock with stat bonus",
+    blurb:"The classic race: a random clock for every runner, reduced by the horse's speed stats. Fast horses are favoured but nothing is guaranteed.",
+    art:false, stats:true,  judged:false, random:true,
+  },
+  rng: {
+    label:"Pure luck — fully randomised",
+    blurb:"Placings are drawn at random. Stats and artwork are ignored entirely — everyone has identical odds. Good for fun classes and raffles.",
+    art:false, stats:false, judged:false, random:true,
+  },
+};
+// Older shows were saved before this existed — fall back to what they'd have done.
+function judgingOf(show){
+  if(show && show.judging && JUDGING_MODES[show.judging]) return show.judging;
+  return DISCIPLINES[(show&&show.discipline)||"Fox Hunting"].mode==="timed" ? "timed" : "art_stats";
+}
+function judgingRules(show){ return JUDGING_MODES[judgingOf(show)]; }
+const usesArt    = show => judgingRules(show).art;
+const usesStats  = show => judgingRules(show).stats;
+const usesJudges = show => judgingRules(show).judged;
+
 const ART_RUBRIC = [
   { key:"required", label:"Required elements", max:10, kind:"checklist",
     help:"Objective. Present or absent. No drawing skill required to score full marks.",
@@ -677,15 +731,27 @@ function judgedScore(entry, show){
   return (show.criteria||[]).reduce((n,c)=> n + criterionScore(entry,c,judges), 0);
 }
 function scoreEntry(entry, show){
-  const ss = statScore(entry, show);
-  const judged = judgedScore(entry, show);
+  const r = judgingRules(show);
+  // Only the parts this show is actually judged on contribute.
+  const ss = r.stats ? statScore(entry, show) : 0;
+  const judged = r.judged ? judgedScore(entry, show) : 0;
   const earned = ss + judged;
   if(show.ranking === "percent"){
-    const possible = DISCIPLINES[show.discipline].stats.length*10
-                   + (show.criteria||[]).reduce((n,c)=> n+Number(c.max||0),0);
+    const possible = (r.stats ? DISCIPLINES[show.discipline].stats.length*10 : 0)
+                   + (r.judged ? (show.criteria||[]).reduce((n,c)=> n+Number(c.max||0),0) : 0);
     return {statScore:ss, judged:+judged.toFixed(2), total:+((earned/(possible||1))*100).toFixed(3)};
   }
   return {statScore:ss, judged:+judged.toFixed(2), total:+earned.toFixed(2)};
+}
+
+// Pure luck. Seeded from the same fingerprint the race uses, so the draw is
+// reproducible and a host can prove it wasn't re-rolled to suit them.
+function runRandom(show, entries){
+  const rng = mulberry32(raceSeed(show, entries));
+  return entries.slice().sort((a,b)=> a.id<b.id?-1:a.id>b.id?1:0)
+    .map(e=>({...e, roll:+(rng()*100).toFixed(3)}))
+    .sort((a,b)=> b.roll-a.roll)
+    .map((e,i)=>({...e, placement:i+1}));
 }
 function rankScored(show, entries){
   const sorted = entries.map(e=>({...e, ...scoreEntry(e,show)}))
@@ -697,7 +763,9 @@ function rankScored(show, entries){
   });
 }
 function runRace(show, entries){
-  const [min,spread]=RACE_TYPES[show.raceType];
+  // Any discipline can now be run as a speed class, so the distance may not
+  // have been set on an older show — fall back rather than throwing.
+  const [min,spread]=RACE_TYPES[show.raceType] || RACE_TYPES["1 Mile"];
   const stats=DISCIPLINES[show.discipline].stats;
   const ceil=show.statCeil ?? 20;
   const rng=mulberry32(raceSeed(show,entries));
@@ -725,9 +793,10 @@ function runShow(show, entries){
     }
     return {mode:"scored", multi:true, results};
   }
-  return DISCIPLINES[show.discipline].mode==="timed"
-    ? {mode:"timed", seed:raceSeed(show,entries), results:runRace(show,entries)}
-    : {mode:"scored", results:rankScored(show,entries)};
+  const j = judgingOf(show);
+  if(j==="timed") return {mode:"timed",  seed:raceSeed(show,entries), results:runRace(show,entries)};
+  if(j==="rng")   return {mode:"random", seed:raceSeed(show,entries), results:runRandom(show,entries)};
+  return {mode:"scored", results:rankScored(show,entries)};
 }
 /* ---------------- sharing: shows travel as links, entries come back as codes ----------------
 
@@ -1015,6 +1084,7 @@ function freshShow(){
     id:"show_"+Math.random().toString(36).slice(2,9),
     hostId:"",                 // bank userId of the host (stamped on first save)
     title:"", discipline:"Fox Hunting", closesAt:"2026-03-31",
+    judging:"art_stats",
     statSource:"base", statCeil:20, raceType:"1 Mile",
     blind:true, preset:"Brief-weighted (recommended)",
     mailbox:DEFAULT_MAILBOX,
@@ -1186,14 +1256,17 @@ function parseHorseLink(link){
 function snapshot(h){
   const base={...(h.stats||{})}, bonus={};
   const inv=h.tackInventory||[];
+  const equippedItems=[];
   (h.tackEquipped||[]).forEach(tid=>{
     const item=inv.find(t=>t.id===tid)||(h.tackOwned||[]).find(t=>t.id===tid);
     if(item?.stats) for(const k in item.stats) bonus[k]=(bonus[k]||0)+Number(item.stats[k]||0);
+    if(item) equippedItems.push({name:item.name||"Tack", category:item.category||"", image:item.image||""});
   });
   const effective={...base};
   for(const k in bonus) effective[k]=(effective[k]||0)+bonus[k];
   return {id:h.id, name:h.name||"Unnamed", breed:h.breed||"", level:h.level||1,
     baseStats:base, tackBonus:bonus, effectiveStats:effective,
+    equipment:equippedItems,   // frozen list of what was worn at entry time
     // Owner's bank userId, if the stable exposes it — this is who prize buxx goes to.
     ownerBankId: h.ownerId || h.userId || h.owner || "",
     artUrl:"", litUrl:"", litWords:0,
@@ -1208,6 +1281,10 @@ function renderSetup(){
   $("f_disc").innerHTML = Object.keys(DISCIPLINES).map(d=>`<option ${d===show.discipline?"selected":""}>${esc(d)}</option>`).join("");
   $("f_race").innerHTML = Object.keys(RACE_TYPES).map(r=>`<option ${r===show.raceType?"selected":""}>${esc(r)}</option>`).join("");
   $("f_preset").innerHTML = Object.keys(RUBRIC_PRESETS).map(p=>`<option ${p===show.preset?"selected":""}>${esc(p)}</option>`).join("");
+  const jNow = judgingOf(show);
+  $("f_judging").innerHTML = Object.entries(JUDGING_MODES)
+    .map(([k,m])=>`<option value="${k}" ${k===jNow?"selected":""}>${esc(m.label)}</option>`).join("");
+  $("judgingBlurb").textContent = JUDGING_MODES[jNow].blurb;
   const pinfo=$("presetInfo");
   if(pinfo) pinfo.innerHTML = rubricBreakdownHtml(show.criteria, show.preset);
   $("f_blind").checked = show.blind;
@@ -1216,16 +1293,29 @@ function renderSetup(){
   $("f_ceil").value = show.statCeil;
   $("f_src").value = show.statSource;
 
-  const timed=isTimed();
+  // Fields follow the JUDGING BASIS now, not the discipline. A stats-only or
+  // pure-luck show has no rubric, no judging panel and no artwork to collect;
+  // an art-only show hides the stat settings because they score nothing.
+  const jKey=judgingOf(show), rules=JUDGING_MODES[jKey];
+  const timed=jKey==="timed";
   $("modeTag").innerHTML = (show.status==="closed"?`<span style="color:var(--rust)">● CLOSED</span> · `:"")
-    + (timed ? "timed · lowest clock wins" : "scored · highest total wins");
+    + (timed ? "timed · lowest clock wins"
+      : jKey==="rng" ? "pure luck · randomly drawn"
+      : jKey==="stats" ? "stats only · highest total wins"
+      : jKey==="art" ? "art only · judges decide"
+      : "scored · highest total wins");
   $("raceWrap").classList.toggle("hide", !timed);
-  $("presetWrap").classList.toggle("hide", timed);
-  $("presetInfo").classList.toggle("hide", timed);
-  $("blindWrap").classList.toggle("hide", timed);
-  $("judgeStep").classList.toggle("hide", timed);
+  $("presetWrap").classList.toggle("hide", !rules.judged);
+  $("presetInfo").classList.toggle("hide", !rules.judged);
+  $("blindWrap").classList.toggle("hide", !rules.judged);
+  $("judgeStep").classList.toggle("hide", !rules.judged);
+  const srcWrap=document.getElementById("srcWrap");
+  if(srcWrap) srcWrap.classList.toggle("hide", !rules.stats);
+  const ceilWrap=$("f_ceil") && $("f_ceil").closest("div");
+  if(ceilWrap) ceilWrap.classList.toggle("hide", !rules.stats);
   const mbp=document.getElementById("mailboxPanel");
-  if(mbp) mbp.classList.toggle("hide", timed);
+  if(mbp) mbp.classList.toggle("hide", !rules.art);
+  const jb=$("judgingBlurb"); if(jb) jb.textContent=rules.blurb;
 
   const stats=DISCIPLINES[show.discipline].stats;
   $("statNote").className="note"+(show.statSource==="effective"?" warn":"");
@@ -1274,6 +1364,7 @@ function renderEntries(){
           <div class="name">${esc(e.name)}</div>
           <div class="meta">${esc(e.breed)}${e.breed?" · ":""}Level ${e.level}${multiClass()?` · <span style="color:var(--amber)">${esc(classOf(e).discipline)}</span>`:""}</div>
           <div class="statline">${statLine(e, view.discipline)}</div>
+          ${(e.equipment&&e.equipment.length)?`<div class="small" style="color:var(--amber);margin-top:4px">🎽 Equipment at entry: ${e.equipment.map(x=>esc(x.name)).join(", ")}</div>`:""}
           ${e.tampered?`<div class="small" style="color:var(--amber);margin-top:6px">⚠ Stats changed after this entry was submitted.</div>`:""}
         </div>
         <div class="pts"><b>${statScore(e,view)}</b><div class="small muted">of ${stats.length*10} stat pts</div>
@@ -1605,6 +1696,7 @@ $("f_src").onchange   = e => { show.statSource=e.target.value; invalidate(); ren
 $("f_race").onchange  = e => { show.raceType=e.target.value; invalidate(); renderAll(); };
 $("f_blind").onchange = e => { show.blind=e.target.checked; invalidate(); renderAll(); };
 $("f_preset").onchange= e => { show.preset=e.target.value; show.criteria=RUBRIC_PRESETS[show.preset]; invalidate(); renderAll(); };
+$("f_judging").onchange= e => { show.judging=e.target.value; invalidate(); renderAll(); };
 $("f_disc").onchange  = e => {
   show.discipline=e.target.value;
   show.ranking=DISCIPLINES[show.discipline].ranking||"sum";
@@ -1880,8 +1972,20 @@ function inviteLink(){
 
 /* ---------------- host ---------------- */
 
+// The link is only meaningful once the show is actually on the board — before
+// that an entrant opening it would get "show not found". So it stays hidden
+// until Publish succeeds. Shows published before this existed already carry a
+// hostId, so they keep their link without having to republish.
+function showIsLive(){
+  return show.onBoard===true || !!show.hostId;
+}
 function renderInvite(){
   const el=$("f_invite"); if(!el) return;
+  const live=showIsLive();
+  const wrap=$("inviteWrap"), pend=$("invitePending");
+  if(wrap) wrap.classList.toggle("hide", !live);
+  if(pend) pend.classList.toggle("hide", live);
+  if(!live){ el.value=""; return; }
   el.value = inviteLink();
   const inv=$("inviteNote");
   inv.className="note good";
@@ -1922,18 +2026,28 @@ $("delShow").onclick = deleteShow;
 $("publishShow").onclick = async e => {
   const btn = e.target;
   const st = $("saveStatus");
-  if(!hostLogin()){
-    if(st) st.textContent = "Sign in on the main site first — publishing puts the show on the board under your name.";
-    return;
-  }
   if(!show.title || !show.title.trim()){
     if(st) st.textContent = "Give the show a name before publishing.";
+    return;
+  }
+  // With no shared board available the invite link is self-contained — the whole
+  // show travels inside the link itself, so there's nothing to upload. Publishing
+  // simply hands the link over. Without this branch the link could never appear
+  // in that mode, which is why it used to be shown unconditionally instead.
+  if(!fsEnabled()){
+    show.onBoard = true; persist(); renderInvite();
+    if(st) st.textContent = "Invite link ready below.";
+    return;
+  }
+  if(!hostLogin()){
+    if(st) st.textContent = "Sign in on the main site first — publishing puts the show on the board under your name.";
     return;
   }
   btn.disabled = true; const old = btn.textContent; btn.textContent = "Publishing…";
   const ok = await fsSaveShow();
   btn.disabled = false; btn.textContent = old;
-  if(st) st.textContent = ok ? "Published to the board ✓" : "Couldn't publish — check your connection (F12 for details).";
+  if(ok){ show.onBoard = true; persist(); renderInvite(); }
+  if(st) st.textContent = ok ? "Published to the board ✓ — your invite link is ready below." : "Couldn't publish — check your connection (F12 for details).";
 };
 
 // Unpublish: pull it back off the board. Local copy is untouched.
@@ -1944,7 +2058,9 @@ $("unpublishShow").onclick = async e => {
   btn.disabled = true; const old = btn.textContent; btn.textContent = "Removing…";
   const ok = await fsRemoveShow(show.id);
   btn.disabled = false; btn.textContent = old;
-  if(st) st.textContent = ok ? "Removed from the board." : "Couldn't remove it — check your connection.";
+  // The link stops working the moment it leaves the board, so stop offering it.
+  if(ok){ show.onBoard = false; show.hostId = ""; persist(); renderInvite(); }
+  if(st) st.textContent = ok ? "Removed from the board — the invite link is hidden until you publish again." : "Couldn't remove it — check your connection.";
 };
 
 function renderPrize(){
@@ -2511,11 +2627,14 @@ if(showParam){
   const store = loadStore();
   if(store.currentId && store.shows[store.currentId]){
     restore(store.currentId);       // bring back the last workspace, id and all
-  } else {
-    show.title = $("f_title").value; // first ever run: seed title from the field
   }
   show.ranking = DISCIPLINES[show.discipline].ranking || "sum";
-  renderAll(); renderInvite(); persist();
+  renderAll(); renderInvite();
+  // Only remember a workspace the host has actually started. Opening the page
+  // used to seed the title from the form's default and save it straight away,
+  // which created a phantom show on the list every time — one the host then had
+  // to delete. A blank new show is saved by the first real edit instead.
+  if(show.title && show.title.trim()) persist();
 }
 </script>
 </body>
