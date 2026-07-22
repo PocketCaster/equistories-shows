@@ -1407,8 +1407,12 @@ function renderSetup(){
   if(srcWrap) srcWrap.classList.toggle("hide", !rules.stats);
   const ceilWrap=$("f_ceil") && $("f_ceil").closest("div");
   if(ceilWrap) ceilWrap.classList.toggle("hide", !rules.stats);
+  // The mailbox is the DELIVERY channel — every entry arrives through it no
+  // matter what the show is judged on. Tying it to the art rubric hid the
+  // "Load submitted entries" button on stats-only, speed and luck shows, so
+  // entries filed correctly and the host had no way to pull them in.
   const mbp=document.getElementById("mailboxPanel");
-  if(mbp) mbp.classList.toggle("hide", !rules.art);
+  if(mbp) mbp.classList.remove("hide");
   const jb=$("judgingBlurb"); if(jb) jb.textContent=rules.blurb;
 
   const stats=DISCIPLINES[show.discipline].stats;
@@ -1782,7 +1786,7 @@ function bindPayout(){
   };
 }
 
-const renderAll = ()=>{ renderSetup(); renderClasses(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); renderRibbons(); renderExpBonuses(); };
+const renderAll = ()=>{ renderSetup(); renderClasses(); renderEntries(); renderJudgeStep(); renderResults(); renderInvite(); renderShowBar(); renderPrize(); renderRibbons(); renderExpBonuses(); autoPullEntries(); };
 const invalidate = ()=>{ published=null; persistSoon(); };
 
 /* ============================================================
@@ -2442,16 +2446,18 @@ $("addCode").onclick = async ()=>{
 
 function mailboxStatus(msg, kind="note"){ $("mailboxStatus").innerHTML=`<div class="note ${kind}">${msg}</div>`; }
 
-$("loadEntries").onclick = async ()=>{
+async function pullSubmittedEntries(quiet){
   if(!show.mailbox || !isAppsScript(show.mailbox)){
-    mailboxStatus("Add your mailbox url up in step 01 first.","warn"); return;
+    if(!quiet) mailboxStatus("Add your mailbox url up in step 01 first.","warn");
+    return;
   }
-  mailboxStatus("Checking the mailbox…");
+  mailboxStatus(quiet?"Checking for new entries…":"Checking the mailbox…");
   const res = await mailboxList(show.mailbox, show.id);
   if(!res?.success){ mailboxStatus(esc(res?.error||"The mailbox didn't answer.")+`<br><span class="mono small">mailbox: ${esc(show.mailbox)}</span>`,"bad"); return; }
 
   const codes = res.entries || [];
-  if(!codes.length){ mailboxStatus(`No submissions found for this show yet.<br><span class="mono small">looking for show id: ${esc(show.id)}</span><br><span class="small muted">If you just submitted a test, make sure you opened the invite link copied from THIS page — a “New show” or an older link has a different id.</span>`,"warn"); return; }
+  if(!codes.length){ if(quiet){ mailboxStatus("No submissions yet.","note"); return; }
+    mailboxStatus(`No submissions found for this show yet.<br><span class="mono small">looking for show id: ${esc(show.id)}</span><br><span class="small muted">If you just submitted a test, make sure you opened the invite link copied from THIS page — a “New show” or an older link has a different id.</span>`,"warn"); return; }
 
   let added=0, dupes=0, failed=0, flagged=0;
   for(const c of codes){
@@ -2467,7 +2473,19 @@ $("loadEntries").onclick = async ()=>{
     (flagged?` <b>${flagged} flagged for changed stats.</b>`:"") +
     (failed?` ${failed} couldn't be read or their stable didn't answer.`:""),
     failed||flagged ? "warn" : "good");
-};
+}
+$("loadEntries").onclick = ()=>pullSubmittedEntries(false);
+
+// Fetch on open so submitted entries simply appear, rather than waiting for a
+// button nobody knew to press. Once per session; the button re-checks manually.
+let __pulledEntries=false;
+function autoPullEntries(){
+  if(__pulledEntries) return;
+  if(entrantView) return;                       // entrants don't load the field
+  if(!show.mailbox || !isAppsScript(show.mailbox)) return;
+  __pulledEntries=true;
+  setTimeout(()=>{ pullSubmittedEntries(true).catch(()=>{}); }, 400);
+}
 
 /* ---------------- entrant ---------------- */
 
@@ -2570,7 +2588,14 @@ function entrantScreen(){
           : `<div class="bands">${c.bands.map(b=>`<div class="band"><span class="p">${b.pts}</span><span class="l">${esc(b.label)}</span><span class="d">${esc(b.desc)}</span></div>`).join("")}</div>`}
       </div>`).join("");
 
-  if(timed){ $("ev_art").closest(".grid").classList.add("hide"); }
+  // Show the art fields when the show is actually judged on art. This used to
+  // key off "timed" alone, so a stats-only or luck show still asked entrants
+  // for artwork that could never be scored.
+  const evRules=judgingRules(show);
+  const artGrid=$("ev_art").closest(".grid");
+  if(artGrid) artGrid.classList.toggle("hide", !evRules.art);
+  const expBlk=$("ev_expBlock");
+  if(expBlk) expBlk.classList.toggle("hide", !evRules.art);
 }
 
 $("ev_check").onclick = async ()=>{
@@ -2840,7 +2865,7 @@ if(showParam){
 }
 </script>
 <div id="buildStamp" style="position:fixed;bottom:6px;right:8px;z-index:99999;font:11px/1.4 ui-monospace,monospace;color:#7a6a58;background:rgba(20,14,10,.85);border:1px solid #3a2e22;border-radius:4px;padding:3px 7px;pointer-events:none;">
-  build 2026-07-22-c
+  build 2026-07-22-d
 </div>
 </body>
 </html>
