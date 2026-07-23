@@ -1286,6 +1286,32 @@ async function fsRemoveShow(showId){
   catch(e){ console.error('[EquiDB] removeShow failed:', e); return false; }
 }
 
+// ---------------- entry receipts ----------------
+// A host can't write into an entrant's namespace (Firestore trusts the signed-in
+// uid as the owner), so results can't be "sent" to people directly. Instead the
+// ENTRANT records, under their own ownership, that they entered a given show.
+// Their tracker then lists these receipts, fetches each show by id — shows are
+// readable by id, which is how invite links already work — and builds an inbox
+// of placements and claimable records. No cross-user writes required.
+async function fsSaveEntryReceipt(horse, classId){
+  if(!fsEnabled()) return false;
+  const who = hostLogin();
+  if(!who || !who.userId || !horse) return false;
+  const DB = await waitForDB(); if(!DB) return false;
+  try{
+    const id = who.userId + "_" + show.id;
+    await DB.put('entered', id, who.userId, {
+      id, userId: who.userId, showId: show.id,
+      showTitle: show.title || "Untitled show",
+      discipline: show.discipline || "",
+      horseId: horse.id, horseName: horse.name || "",
+      classId: classId || null,
+      enteredAt: new Date().toISOString(),
+    });
+    return true;
+  }catch(e){ console.warn('[EquiDB] entry receipt failed:', e && e.message); return false; }
+}
+
 let saveTimer=null;
 function persistSoon(){ if(entrantView) return; clearTimeout(saveTimer); saveTimer=setTimeout(persist, 400); }
 
@@ -2959,6 +2985,10 @@ $("ev_gen").onclick = ()=>{
   });
 
   const canSubmit = show.mailbox && isAppsScript(show.mailbox);
+
+  // Remember that this account entered this show, so their tracker can find the
+  // results later without the host having to send anything.
+  fsSaveEntryReceipt(evHorse, multiClass() ? window.__evClassId : null);
 
   out.innerHTML=`<div style="margin-top:16px">
     ${canSubmit ? `<div class="row"><button class="primary" id="ev_submit" type="button">Submit to ${esc(show.title||"the show")}</button>
