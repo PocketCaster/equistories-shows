@@ -184,11 +184,20 @@
   </div>
 
   <div class="panel">
-    <label for="ev_link">1 · Your horse's shareable link</label>
+    <label for="ev_pick">1 · Your horse</label>
     <div class="row">
-      <input id="ev_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123" />
-      <button class="ghost" id="ev_check" type="button">Check my horse</button>
+      <select id="ev_pick" style="flex:1;min-width:240px"><option value="">Loading your horses…</option></select>
+      <button class="ghost" id="ev_reload" type="button" title="Re-check your stable">↻</button>
     </div>
+    <div id="ev_pickNote" class="small muted" style="margin-top:6px"></div>
+    <details id="ev_linkWrap" style="margin-top:10px">
+      <summary>Or paste a horse's shareable link</summary>
+      <div class="row" style="margin-top:8px">
+        <input id="ev_link" type="text" style="flex:1;min-width:240px" placeholder="https://…?horse=h_abc123" />
+        <button class="ghost" id="ev_check" type="button">Check my horse</button>
+      </div>
+      <div class="small muted" style="margin-top:6px">Use this for a horse that isn't in the signed-in stable — for example one someone else is lending you.</div>
+    </details>
     <div id="ev_horse"></div>
 
     <div class="grid" style="margin-top:18px">
@@ -2645,6 +2654,15 @@ function refreshEntrantAuth(){
       ? `Entering as <b>${esc(login.userId)}</b> — prizes and ribbons will reach this account.`
       : `<b>Sign in at the top to enter.</b> Your entry is tied to your bank login.`;
   }
+  // Keep the horse dropdown in step with who's signed in.
+  if($("ev_pick")){
+    const uid = login && login.userId ? login.userId : "";
+    if(refreshEntrantAuth._lastUid !== uid){
+      refreshEntrantAuth._lastUid = uid;
+      evHorse = null; renderEvHorse();
+      loadMyHorses();
+    }
+  }
 }
 
 function entrantMode(code){
@@ -2664,6 +2682,7 @@ function entrantMode(code){
 function entrantScreen(){
   $("hostView").classList.add("hide");
   $("entrantView").classList.remove("hide");
+  bindEntrantPicker();
 
   if(show.status==="closed"){
     $("entrantView").innerHTML = `<div class="panel"><div class="note warn" style="font-size:1rem">
@@ -2743,20 +2762,13 @@ function entrantScreen(){
     : `<div class="note">This class is decided by ${esc(JUDGING_MODES[judgingOf(show)].label.toLowerCase())}, so artwork won't change where you place. Add a piece anyway if you'd like the EXP for it.</div>`;
 }
 
-$("ev_check").onclick = async ()=>{
-  const p=parseHorseLink($("ev_link").value);
+// Render the confirmed horse card. Shared by the dropdown and the link fallback.
+function renderEvHorse(){
   const box=$("ev_horse");
-  if(!p){ box.innerHTML=`<div class="note bad">That doesn't look like a horse link. Copy the shareable link from your horse's profile page — it should look like …?horse=h_abc123</div>`; return; }
-  box.innerHTML=`<div class="note">Fetching your horse…</div>`;
-  const res=await fetchPublicHorse(p);
-  if(!res?.success || !res.data){ box.innerHTML=`<div class="note bad">${esc(res?.error||"Couldn't load that horse.")}</div>`; return; }
-
-  evHorse = snapshot(res.data);
-  evHorse.stable = p.stable;
+  if(!evHorse){ box.innerHTML=""; return; }
   const stats=DISCIPLINES[show.discipline].stats;
   const pts=statScore(evHorse, show);
   const ev=trainingEvidence(evHorse, stats);
-
   box.innerHTML=`<div class="entry" style="margin-top:12px">
     <div class="row" style="align-items:flex-start">
       <div style="flex:1"><div class="name">${esc(evHorse.name)}</div>
@@ -2768,6 +2780,81 @@ $("ev_check").onclick = async ()=>{
       ${ev.length?`<ul>${ev.map(x=>`<li>${esc(x.label)} — ${esc(x.raised.join(", "))}</li>`).join("")}</ul>`:""}
     </details>
   </div>`;
+}
+
+// The signed-in entrant's own horses, pulled straight from the database so they
+// never have to hunt down a shareable link. The link field stays as a fallback
+// for horses outside this account.
+let evMyHorses = [];
+async function loadMyHorses(){
+  const sel=$("ev_pick"), note=$("ev_pickNote");
+  if(!sel) return;
+  const login=hostLogin();
+  if(!login || !login.userId){
+    sel.innerHTML=`<option value="">Sign in to list your horses</option>`;
+    if(note) note.textContent="Once you're signed in your horses appear here automatically.";
+    return;
+  }
+  sel.innerHTML=`<option value="">Loading your horses…</option>`;
+  if(note) note.textContent="";
+  const DB = fsEnabled() ? await waitForDB() : null;
+  if(!DB || !DB.listByOwner){
+    sel.innerHTML=`<option value="">Couldn't reach your stable</option>`;
+    if(note) note.textContent="Use the shareable-link option below instead.";
+    return;
+  }
+  try{
+    evMyHorses = await DB.listByOwner('horses', login.userId) || [];
+  }catch(e){
+    console.warn('[EquiShows] listByOwner failed:', e && e.message);
+    evMyHorses = [];
+    sel.innerHTML=`<option value="">Couldn't load your horses</option>`;
+    if(note) note.textContent="Use the shareable-link option below instead.";
+    return;
+  }
+  // Only adults can compete, mirroring the stable manager's own rule.
+  const eligible = evMyHorses.filter(h=> !h.stage || h.stage==="adult");
+  if(!eligible.length){
+    sel.innerHTML=`<option value="">No eligible horses found</option>`;
+    if(note) note.textContent = evMyHorses.length
+      ? "Your horses aren't adults yet — only adult horses can enter."
+      : "No horses found on this account. You can still paste a shareable link below.";
+    return;
+  }
+  eligible.sort((a,b)=> (a.name||"").localeCompare(b.name||""));
+  sel.innerHTML = `<option value="">— pick a horse —</option>` + eligible.map(h=>
+    `<option value="${esc(h.id)}">${esc(h.name||"Unnamed")}${h.breed?` — ${esc(h.breed)}`:""}${h.level?` (Lvl ${h.level})`:""}</option>`).join("");
+  if(note) note.textContent = `${eligible.length} horse${eligible.length===1?"":"s"} on ${login.userId}.`;
+}
+
+function bindEntrantPicker(){
+  const sel=$("ev_pick");
+  if(sel) sel.onchange = ()=>{
+    const id=sel.value;
+    if(!id){ evHorse=null; renderEvHorse(); return; }
+    const h=evMyHorses.find(x=>x.id===id);
+    if(!h){ $("ev_horse").innerHTML=`<div class="note bad">Couldn't find that horse — try ↻ to refresh.</div>`; return; }
+    evHorse = snapshot(h);
+    evHorse.stable = null;          // lives in the shared collection, no legacy stable url
+    const lk=$("ev_link"); if(lk) lk.value="";
+    renderEvHorse();
+  };
+  const rl=$("ev_reload");
+  if(rl) rl.onclick = ()=>{ loadMyHorses(); };
+}
+
+$("ev_check").onclick = async ()=>{
+  const p=parseHorseLink($("ev_link").value);
+  const box=$("ev_horse");
+  if(!p){ box.innerHTML=`<div class="note bad">That doesn't look like a horse link. Copy the shareable link from your horse's profile page — it should look like …?horse=h_abc123</div>`; return; }
+  box.innerHTML=`<div class="note">Fetching your horse…</div>`;
+  const res=await fetchPublicHorse(p);
+  if(!res?.success || !res.data){ box.innerHTML=`<div class="note bad">${esc(res?.error||"Couldn't load that horse.")}</div>`; return; }
+
+  evHorse = snapshot(res.data);
+  evHorse.stable = p.stable;
+  const sel=$("ev_pick"); if(sel) sel.value="";
+  renderEvHorse();
 };
 
 $("ev_art").addEventListener("blur", ()=>{
