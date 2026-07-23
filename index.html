@@ -939,11 +939,17 @@ function statsFingerprint(stats, discipline){
   return cyrb53(keys.map(k=> k+":"+(stats[k]||0)).join("|"));
 }
 
-function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, bankId, seenStats, classId}){
+function encodeEntry(show, {horseId, stable, artUrl, litUrl, litWords, bankId, seenStats, classId, artMix, artBonuses, artExp, artLabel}){
   return b64encode({
     v:1, s:show.id, h:horseId, u:stable,
     a:artUrl||"", w:litUrl||"", c:Number(litWords)||0,
     g:bankId||"",
+    // What the entrant declared the piece IS — carried so their tracker can log
+    // the artwork for EXP without them submitting the same image a second time.
+    m: (artMix && artMix.length) ? artMix : undefined,
+    ab:(artBonuses && artBonuses.length) ? artBonuses : undefined,
+    ax: Number(artExp)||undefined,
+    al: artLabel||undefined,
     t:new Date().toISOString(),
     k: seenStats ? statsFingerprint(seenStats, show.discipline) : null,
     cl: classId||undefined,
@@ -955,6 +961,7 @@ function decodeEntry(code, show){
   if(show && d.s !== show.id) throw new Error("That code is for a different show.");
   return {showId:d.s, horseId:d.h, stable:d.u, artUrl:d.a, litUrl:d.w,
           litWords:d.c, bankId:d.g||"", submittedAt:d.t, seenFingerprint:d.k,
+          artMix:d.m||[], artBonuses:d.ab||[], artExp:Number(d.ax)||0, artLabel:d.al||"",
           classId:d.cl||null};
 }
 
@@ -1033,6 +1040,7 @@ function resolveRibbons(show, results, meta){
     const tier = byPlace[r.placement];
     if(!tier) continue;
     out.push({
+      recId: compRecordId(show, r),
       placement: r.placement,
       label: placeLabel(r.placement),
       customLabel: tier.label || "",
@@ -1040,6 +1048,10 @@ function resolveRibbons(show, results, meta){
       name: r.name, horseId: r.id, bankId: r.ownerBankId || r.bankId || null,
       expBonus: expBonusFor(show, r.placement),
       artExp: Number(r.artExp)||0, artLabel: r.artLabel||"",
+      // The entrant's own submitted piece, so claiming a ribbon also logs the art.
+      artUrl: r.artUrl||"", litUrl: r.litUrl||"", litWords: Number(r.litWords)||0,
+      artMix: (r.artMix&&r.artMix.length)?r.artMix:null,
+      artBonuses: (r.artBonuses&&r.artBonuses.length)?r.artBonuses:null,
       expBonusNote: (expBonusesOf(show).find(b=>Number(b.place)===Number(r.placement))||{}).note || "",
       className: r.className || "",
       discipline: r.className || (meta&&meta.discipline) || show.discipline,
@@ -1094,7 +1106,18 @@ function entryToCompRecord(show, r){
     date: new Date().toISOString().slice(0,10),
     placement: placed ? r.placement : null,
     note: placed ? "" : "Entered — no placement",
-    image: null, link: null, prizes: [],
+    // The artwork the entrant already submitted to this show, carried through so
+    // their tracker can log the piece for EXP without uploading it a second time.
+    image: r.artUrl || null,
+    link: r.artUrl || null,
+    artImage: r.artUrl || null,
+    litUrl: r.litUrl || null,
+    litWords: Number(r.litWords)||0,
+    artMix: (r.artMix&&r.artMix.length)?r.artMix:null,
+    artBonuses: (r.artBonuses&&r.artBonuses.length)?r.artBonuses:null,
+    artExp: Number(r.artExp)||0,
+    artLabel: r.artLabel || "",
+    prizes: [],
   };
 }
 function entryClaimCode(show, r){
@@ -1104,11 +1127,18 @@ function entryClaimCode(show, r){
 // Convert a ribbon into the exact compHistory record the main app stores.
 function ribbonToCompRecord(rib){
   return {
-    id: "show_"+Math.random().toString(36).slice(2,10),
+    id: rib.recId || ("show_"+Math.random().toString(36).slice(2,10)),
     discipline: rib.discipline, difficulty: rib.customLabel || rib.label,
     venue: rib.venue, date: rib.date, placement: rib.placement,
     note: rib.customLabel ? rib.label : "",
-    image: rib.image || null, link: null, prizes: [],
+    image: rib.image || rib.artUrl || null, link: rib.artUrl || null,
+    // Kept distinct from the ribbon image above: this is the entrant's artwork,
+    // and it's what gets logged for EXP on the horse.
+    artImage: rib.artUrl || null,
+    litUrl: rib.litUrl || null, litWords: Number(rib.litWords)||0,
+    artMix: rib.artMix || null, artBonuses: rib.artBonuses || null,
+    artExp: Number(rib.artExp)||0, artLabel: rib.artLabel||"",
+    prizes: [],
   };
 }
 
@@ -2572,6 +2602,8 @@ async function acceptCode(raw, {silent}={}){
   const snap = snapshot(res.data);
   snap.classId=cid;
   snap.artUrl=dec.artUrl; snap.litUrl=dec.litUrl; snap.litWords=dec.litWords; snap.bankId=dec.bankId||"";
+  snap.artMix=dec.artMix||[]; snap.artBonuses=dec.artBonuses||[];
+  snap.artExp=dec.artExp||0; snap.artLabel=dec.artLabel||"";
   snap.submittedAt=dec.submittedAt;
   snap.tampered = entryTampered(snap, dec, entryView(snap));
   snap.late = show.closesAt && new Date(dec.submittedAt) > new Date(show.closesAt+"T23:59:59");
